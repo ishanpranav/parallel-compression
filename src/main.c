@@ -48,9 +48,8 @@ int main(int count, String args[])
         return EXIT_FAILURE;
     }
 
-    int fileCount = count - optind;
     struct MappedFileCollection mappedFiles;
-    
+    int fileCount = count - optind;
     int ex = mapped_file_collection(&mappedFiles, args + optind, fileCount);
 
     if (ex == -1)
@@ -68,7 +67,6 @@ int main(int count, String args[])
         if (!errorMessage)
         {
             perror(args[0]);
-            finalize_mapped_file_collection(&mappedFiles);
 
             return EXIT_FAILURE;
         }
