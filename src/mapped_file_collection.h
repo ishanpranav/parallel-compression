@@ -9,7 +9,7 @@
 /**  */
 struct MappedFileCollection
 {
-    size_t count;
+    unsigned char count;
     struct MappedFile* items;
 };
 

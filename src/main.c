@@ -11,17 +11,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "encoder.h"
 #include "euler.h"
 #include "mapped_file_collection.h"
 
 static void main_print_usage(String args[])
 {
     printf("Usage: %s [OPTION]... FILE...\n", args[0]);
-}
-
-static void main_encode(MappedFile file)
-{
-    printf("%s\n", file->buffer);
 }
 
 int main(int count, String args[])
@@ -78,12 +74,20 @@ int main(int count, String args[])
         return EXIT_FAILURE;
     }
 
+    struct Encoder runLengthEncoder = { 0 };
+
     for (int i = 0; i < fileCount; i++)
-    {
-        printf("[%d]:\n", i);
-        main_encode(mappedFiles.items + i);
+    {    
+        if (!encoder_next_encode(&runLengthEncoder, mappedFiles.items + i))
+        {
+            perror(args[0]);
+            finalize_mapped_file_collection(&mappedFiles);
+
+            return EXIT_FAILURE;
+        }
     }
 
+    encoder_end_encode(&runLengthEncoder);
     finalize_mapped_file_collection(&mappedFiles);
 
     return EXIT_SUCCESS;
