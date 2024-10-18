@@ -12,86 +12,21 @@
 //  - https://www.man7.org/linux/man-pages/man3/sprintf.3p.html
 //  - https://www.man7.org/linux/man-pages/man3/stat.3type.html
 
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include "euler.h"
-#include "mapped_file.h"
-#include "string_builder.h"
+#include "mapped_file_collection.h"
 
 static void main_print_usage(String args[])
 {
     printf("Usage: %s [OPTION]... FILE...\n", args[0]);
 }
 
-static void main_throw_file_error(StringBuilder application, String path)
-{
-    String errorMessage = malloc(application->length + strlen(path) + 3);
-
-    if (!errorMessage)
-    {
-        perror(application->buffer);
-
-        return;
-    }
-
-    sprintf(errorMessage, "%s: %s", application->buffer, path);
-    perror(errorMessage);
-    exit(EXIT_FAILURE);
-}
-
 static void main_encode(MappedFile file)
 {
     printf("%s\n", file->buffer);
-}
-
-static void main_map_files(
-    struct MappedFile results[],
-    String paths[], 
-    int count, 
-    StringBuilder application)
-{
-    for (int i = 0; i < count; i++)
-    {
-        int descriptor = open(paths[i], O_RDONLY);
-
-        if (descriptor == -1)
-        {
-            main_throw_file_error(application, paths[i]);
-        }
-
-        struct stat status;
-
-        if (fstat(descriptor, &status) == -1)
-        {
-            main_throw_file_error(application, paths[i]);
-        }
-
-        unsigned char* buffer = mmap(
-            NULL,
-            status.st_size,
-            PROT_READ,
-            MAP_PRIVATE,
-            descriptor,
-            0);
-
-        if (buffer == MAP_FAILED)
-        {
-            main_throw_file_error(application, paths[i]);
-        }
-
-        results[i].size = status.st_size;
-        results[i].buffer = buffer;
-
-        if (close(descriptor) == -1)
-        {
-            main_throw_file_error(application, paths[i]);
-        }
-    }
 }
 
 int main(int count, String args[])
@@ -118,28 +53,45 @@ int main(int count, String args[])
         return EXIT_FAILURE;
     }
 
-    MappedFile mappedFiles = malloc((count - optind) * sizeof * mappedFiles);
+    int fileCount = count - optind;
+    struct MappedFileCollection mappedFiles;
+    
+    int ex = mapped_file_collection(&mappedFiles, args + optind, fileCount);
 
-    if (!mappedFiles)
+    if (ex == -1)
     {
         perror(args[0]);
 
         return EXIT_FAILURE;
     }
 
-    struct StringBuilder application =
+    if (ex < fileCount)
     {
-        .length = strlen(args[0]),
-        .buffer = args[0]
-    };
-    
-    main_map_files(mappedFiles, args + optind, count - optind, &application);
-    
-    for (int i = 0; i < count - optind; i++)
+        String path = args[optind + ex];
+        String errorMessage = malloc(strlen(args[0]) + strlen(path) + 3);
+
+        if (!errorMessage)
+        {
+            perror(args[0]);
+            finalize_mapped_file_collection(&mappedFiles);
+
+            return EXIT_FAILURE;
+        }
+
+        sprintf(errorMessage, "%s: %s", args[0], path);
+        perror(errorMessage);
+        free(errorMessage);
+        
+        return EXIT_FAILURE;
+    }
+
+    for (int i = 0; i < fileCount; i++)
     {
         printf("[%d]:\n", i);
-        main_encode(mappedFiles + i);
+        main_encode(mappedFiles.items + i);
     }
+
+    finalize_mapped_file_collection(&mappedFiles);
 
     return EXIT_SUCCESS;
 }

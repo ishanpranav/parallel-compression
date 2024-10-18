@@ -12,8 +12,11 @@ CFLAGS=-D_POSIX_C_SOURCE=2 -pedantic -std=c99 -Wall -Wextra
 
 all: nyuenc
 
-nyuenc: main.c euler.h mapped_file.h
-	$(CC) $(CFLAGS) main.c -o nyuenc
+nyuenc: main.c euler.h mapped_file_collection
+	$(CC) $(CFLAGS) *.o main.c -o nyuenc
 
+mapped_file_collection: mapped_file_collection.c mapped_file_collection.h \
+	mapped_file.h
+	$(CC) $(CFLAGS) -c mapped_file_collection.c 
 clean:
 	rm -f *.o nyush
