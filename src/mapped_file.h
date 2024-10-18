@@ -11,7 +11,7 @@
 struct MappedFile
 {
     off_t size;
-    char* buffer;
+    unsigned char* buffer;
 };
 
 /** */

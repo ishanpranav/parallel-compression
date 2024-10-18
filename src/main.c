@@ -28,11 +28,11 @@ static void main_print_usage(String args[])
 }
 
 static void main_print_file_error(
-    char* application,
+    String application,
     size_t applicationLength,
-    char* arg)
+    String arg)
 {
-    char* errorMessage = malloc(applicationLength + strlen(arg) + 3);
+    String errorMessage = malloc(applicationLength + strlen(arg) + 3);
 
     if (!errorMessage)
     {
@@ -105,7 +105,7 @@ int main(int count, String args[])
             return EXIT_FAILURE;
         }
 
-        char* mappedFile = mmap(
+        unsigned char* buffer = mmap(
             NULL,
             status.st_size,
             PROT_READ,
@@ -113,7 +113,7 @@ int main(int count, String args[])
             descriptor,
             0);
 
-        if (mappedFile == MAP_FAILED)
+        if (buffer == MAP_FAILED)
         {
             main_print_file_error(args[0], applicationLength, args[i]);
 
@@ -121,7 +121,7 @@ int main(int count, String args[])
         }
 
         mappedFiles[i - optind].size = status.st_size;
-        mappedFiles[i - optind].buffer = mappedFile;
+        mappedFiles[i - optind].buffer = buffer;
 
         if (close(descriptor) == -1)
         {
