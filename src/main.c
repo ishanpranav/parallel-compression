@@ -23,8 +23,9 @@ static void main_print_usage(String args[])
 int main(int count, String args[])
 {
     int option;
+    unsigned long long jobs;
 
-    while ((option = getopt(count, args, "h")) != -1)
+    while ((option = getopt(count, args, "hj:")) != -1)
     {
         switch (option)
         {
@@ -32,6 +33,10 @@ int main(int count, String args[])
             main_print_usage(args);
 
             return EXIT_SUCCESS;
+
+        case 'j':
+            jobs = strtoull(args[optind], NULL, 10);
+            break;
 
         default: return EXIT_FAILURE;
         }
@@ -70,24 +75,28 @@ int main(int count, String args[])
         sprintf(errorMessage, "%s: %s", args[0], path);
         perror(errorMessage);
         free(errorMessage);
-        
+
         return EXIT_FAILURE;
     }
 
-    Encoder encoder = { 0 };
+    if (!jobs)
+    {
+        Encoder encoder = { 0 };
 
-    for (int i = 0; i < fileCount; i++)
-    {    
-        if (!encoder_next_encode(&encoder, mappedFiles.items + i))
+        for (int i = 0; i < fileCount; i++)
         {
-            perror(args[0]);
-            finalize_mapped_file_collection(&mappedFiles);
+            if (!encoder_next_encode(&encoder, mappedFiles.items + i))
+            {
+                perror(args[0]);
+                finalize_mapped_file_collection(&mappedFiles);
 
-            return EXIT_FAILURE;
+                return EXIT_FAILURE;
+            }
         }
+
+        encoder_end_encode(encoder);
     }
 
-    encoder_end_encode(encoder);
     finalize_mapped_file_collection(&mappedFiles);
 
     return EXIT_SUCCESS;
