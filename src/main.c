@@ -123,7 +123,7 @@ int main(int count, String args[])
         mappedFiles[i - optind].size = status.st_size;
         mappedFiles[i - optind].buffer = mappedFile;
 
-        if (close(descriptor) == 1)
+        if (close(descriptor) == -1)
         {
             main_print_file_error(args[0], applicationLength, args[i]);
 
