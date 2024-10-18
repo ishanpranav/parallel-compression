@@ -2,6 +2,13 @@
 // Copyright (c) 2024 Ishan Pranav
 // Licensed under the MIT license.
 
+// References:
+//  - https://man7.org/linux/man-pages/man2/close.2.html
+//  - https://www.man7.org/linux/man-pages/man3/fstat.3p.html
+//  - https://www.man7.org/linux/man-pages/man2/mmap.2.html
+//  - https://www.man7.org/linux/man-pages/man2/open.2.html
+//  - https://www.man7.org/linux/man-pages/man3/stat.3type.html
+
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
