@@ -21,33 +21,77 @@
 #include <unistd.h>
 #include "euler.h"
 #include "mapped_file.h"
+#include "string_builder.h"
 
 static void main_print_usage(String args[])
 {
     printf("Usage: %s [OPTION]... FILE...\n", args[0]);
 }
 
-static void main_print_file_error(
-    String application,
-    size_t applicationLength,
-    String arg)
+static void main_throw_file_error(StringBuilder application, String path)
 {
-    String errorMessage = malloc(applicationLength + strlen(arg) + 3);
+    String errorMessage = malloc(application->length + strlen(path) + 3);
 
     if (!errorMessage)
     {
-        perror(application);
+        perror(application->buffer);
 
         return;
     }
 
-    sprintf(errorMessage, "%s: %s", application, arg);
+    sprintf(errorMessage, "%s: %s", application->buffer, path);
     perror(errorMessage);
+    exit(EXIT_FAILURE);
 }
 
 static void main_encode(MappedFile file)
 {
     printf("%s\n", file->buffer);
+}
+
+static void main_map_files(
+    struct MappedFile results[],
+    String paths[], 
+    int count, 
+    StringBuilder application)
+{
+    for (int i = 0; i < count; i++)
+    {
+        int descriptor = open(paths[i], O_RDONLY);
+
+        if (descriptor == -1)
+        {
+            main_throw_file_error(application, paths[i]);
+        }
+
+        struct stat status;
+
+        if (fstat(descriptor, &status) == -1)
+        {
+            main_throw_file_error(application, paths[i]);
+        }
+
+        unsigned char* buffer = mmap(
+            NULL,
+            status.st_size,
+            PROT_READ,
+            MAP_PRIVATE,
+            descriptor,
+            0);
+
+        if (buffer == MAP_FAILED)
+        {
+            main_throw_file_error(application, paths[i]);
+        }
+
+        results[i].size = status.st_size;
+        results[i].buffer = buffer;
+
+        if (close(descriptor) == -1)
+        {
+            main_throw_file_error(application, paths[i]);
+        }
+    }
 }
 
 int main(int count, String args[])
@@ -83,54 +127,14 @@ int main(int count, String args[])
         return EXIT_FAILURE;
     }
 
-    size_t applicationLength = strlen(args[0]);
-
-    for (int i = optind; i < count; i++)
+    struct StringBuilder application =
     {
-        int descriptor = open(args[i], O_RDONLY);
-
-        if (descriptor == -1)
-        {
-            main_print_file_error(args[0], applicationLength, args[i]);
-
-            return EXIT_FAILURE;
-        }
-
-        struct stat status;
-
-        if (fstat(descriptor, &status) == -1)
-        {
-            main_print_file_error(args[0], applicationLength, args[i]);
-
-            return EXIT_FAILURE;
-        }
-
-        unsigned char* buffer = mmap(
-            NULL,
-            status.st_size,
-            PROT_READ,
-            MAP_PRIVATE,
-            descriptor,
-            0);
-
-        if (buffer == MAP_FAILED)
-        {
-            main_print_file_error(args[0], applicationLength, args[i]);
-
-            return EXIT_FAILURE;
-        }
-
-        mappedFiles[i - optind].size = status.st_size;
-        mappedFiles[i - optind].buffer = buffer;
-
-        if (close(descriptor) == -1)
-        {
-            main_print_file_error(args[0], applicationLength, args[i]);
-
-            return EXIT_FAILURE;
-        }
-    }
-
+        .length = strlen(args[0]),
+        .buffer = args[0]
+    };
+    
+    main_map_files(mappedFiles, args + optind, count - optind, &application);
+    
     for (int i = 0; i < count - optind; i++)
     {
         printf("[%d]:\n", i);
