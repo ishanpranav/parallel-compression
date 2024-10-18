@@ -21,8 +21,6 @@ bool encoder_next_encode(Encoder* instance, MappedFile input)
 
     for (off_t i = 0; i < input->size; i++)
     {
-        unsigned char current = input->buffer[i];
-
         if (!clone.count)
         {
             clone.previous = current;
@@ -30,6 +28,8 @@ bool encoder_next_encode(Encoder* instance, MappedFile input)
 
             continue;
         }
+
+        unsigned char current = input->buffer[i];
 
         if (current == clone.previous && clone.count < UCHAR_MAX)
         {

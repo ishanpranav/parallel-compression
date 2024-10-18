@@ -23,4 +23,4 @@ mapped_file_collection: mapped_file_collection.c mapped_file_collection.h \
 	$(CC) $(CFLAGS) -c mapped_file_collection.c
 
 clean:
-	rm -f *.o nyush
+	rm -f *.o nyuenc
