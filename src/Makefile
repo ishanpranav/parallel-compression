@@ -12,7 +12,7 @@ CFLAGS=-D_POSIX_C_SOURCE=2 -pedantic -std=c99 -Wall -Wextra
 
 all: nyuenc
 
-nyuenc: main.c euler.h exception.h
+nyuenc: main.c euler.h mapped_file.h
 	$(CC) $(CFLAGS) main.c -o nyuenc
 
 clean:

@@ -3,21 +3,51 @@
 // Licensed under the MIT license.
 
 // References:
+//  - https://man7.org/linux/man-pages/man2/close.2.html
+//  - https://www.man7.org/linux/man-pages/man3/fstat.3p.html
 //  - https://www.man7.org/linux/man-pages/man3/getopt.3.html
+//  - https://www.man7.org/linux/man-pages/man2/mmap.2.html
+//  - https://www.man7.org/linux/man-pages/man2/open.2.html
+//  - https://www.man7.org/linux/man-pages/man3/perror.3.html
+//  - https://www.man7.org/linux/man-pages/man3/sprintf.3p.html
+//  - https://www.man7.org/linux/man-pages/man3/stat.3type.html
 
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include "euler.h"
+#include "mapped_file.h"
 
-void main_print_usage(String args[])
+static void main_print_usage(String args[])
 {
     printf("Usage: %s [OPTION]... FILE...\n", args[0]);
 }
 
-void main_encode(char destination[], char source[], size_t count)
+static void main_print_file_error(
+    char* application,
+    size_t applicationLength,
+    char* arg)
 {
+    char* errorMessage = malloc(applicationLength + strlen(arg) + 3);
 
+    if (!errorMessage)
+    {
+        perror(application);
+
+        return;
+    }
+
+    sprintf(errorMessage, "%s: %s", application, arg);
+    perror(errorMessage);
+}
+
+static void main_encode(MappedFile file)
+{
+    printf("%s\n", file->buffer);
 }
 
 int main(int count, String args[])
@@ -28,44 +58,83 @@ int main(int count, String args[])
     {
         switch (option)
         {
-            case 'h':
-                main_print_usage(args);
+        case 'h':
+            main_print_usage(args);
 
-                return EXIT_SUCCESS;
+            return EXIT_SUCCESS;
 
-            default: return EXIT_FAILURE;
+        default: return EXIT_FAILURE;
         }
     }
 
-    if (optind >= count) 
+    if (optind >= count)
     {
         main_print_usage(args);
 
         return EXIT_FAILURE;
     }
 
-    size_t length = 0;
-    size_t capacity = 4;
-    size_t applicationLength = strlen(args[0]);
-    char* buffer = malloc(capacity);
+    MappedFile mappedFiles = malloc((count - optind) * sizeof * mappedFiles);
 
-    euler_assert(buffer);
+    if (!mappedFiles)
+    {
+        perror(args[0]);
+
+        return EXIT_FAILURE;
+    }
+
+    size_t applicationLength = strlen(args[0]);
 
     for (int i = optind; i < count; i++)
     {
-        FILE* inputStream = fopen(args[i], "r");
+        int descriptor = open(args[i], O_RDONLY);
 
-        if (!inputStream)
+        if (descriptor == -1)
         {
-            size_t argLength = strlen(args[i]);
-            char* errorMessage = malloc(applicationLength + argLength + 3);
-
-            euler_assert(errorMessage);
-            sprintf(errorMessage, "%s: %s", args[0], args[i]);
-            perror(errorMessage);
+            main_print_file_error(args[0], applicationLength, args[i]);
 
             return EXIT_FAILURE;
         }
+
+        struct stat status;
+
+        if (fstat(descriptor, &status) == -1)
+        {
+            main_print_file_error(args[0], applicationLength, args[i]);
+
+            return EXIT_FAILURE;
+        }
+
+        char* mappedFile = mmap(
+            NULL,
+            status.st_size,
+            PROT_READ,
+            MAP_PRIVATE,
+            descriptor,
+            0);
+
+        if (mappedFile == MAP_FAILED)
+        {
+            main_print_file_error(args[0], applicationLength, args[i]);
+
+            return EXIT_FAILURE;
+        }
+
+        mappedFiles[i - optind].size = status.st_size;
+        mappedFiles[i - optind].buffer = mappedFile;
+
+        if (close(descriptor) == 1)
+        {
+            main_print_file_error(args[0], applicationLength, args[i]);
+
+            return EXIT_FAILURE;
+        }
+    }
+
+    for (int i = 0; i < count - optind; i++)
+    {
+        printf("[%d]:\n", i);
+        main_encode(mappedFiles + i);
     }
 
     return EXIT_SUCCESS;
