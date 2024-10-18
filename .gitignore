@@ -1,0 +1,8 @@
+# .gitignore
+# Copyright (c) 2024 Ishan Pranav
+# Licensed under the MIT license.
+
+*.o
+src/nyuenc
+.vscode/
+nyuenc-autograder/
