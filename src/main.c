@@ -74,11 +74,11 @@ int main(int count, String args[])
         return EXIT_FAILURE;
     }
 
-    struct Encoder runLengthEncoder = { 0 };
+    Encoder encoder = { 0 };
 
     for (int i = 0; i < fileCount; i++)
     {    
-        if (!encoder_next_encode(&runLengthEncoder, mappedFiles.items + i))
+        if (!encoder_next_encode(&encoder, mappedFiles.items + i))
         {
             perror(args[0]);
             finalize_mapped_file_collection(&mappedFiles);
@@ -87,7 +87,7 @@ int main(int count, String args[])
         }
     }
 
-    encoder_end_encode(&runLengthEncoder);
+    encoder_end_encode(encoder);
     finalize_mapped_file_collection(&mappedFiles);
 
     return EXIT_SUCCESS;

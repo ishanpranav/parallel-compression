@@ -12,12 +12,12 @@
 
 static bool encoder_flush(Encoder instance)
 {
-    return write(STDOUT_FILENO, instance, sizeof * instance) != -1;
+    return write(STDOUT_FILENO, &instance, sizeof instance) != -1;
 }
 
-bool encoder_next_encode(Encoder instance, MappedFile input)
+bool encoder_next_encode(Encoder* instance, MappedFile input)
 {
-    struct Encoder clone = *instance;
+    Encoder clone = *instance;
 
     for (off_t i = 0; i < input->size; i++)
     {
@@ -38,7 +38,7 @@ bool encoder_next_encode(Encoder instance, MappedFile input)
             continue;
         }
         
-        if (!encoder_flush(&clone))
+        if (!encoder_flush(clone))
         {
             *instance = clone;
 
@@ -56,5 +56,5 @@ bool encoder_next_encode(Encoder instance, MappedFile input)
 
 bool encoder_end_encode(Encoder instance)
 {
-    return !instance->count || encoder_flush(instance);
+    return !instance.count || encoder_flush(instance);
 }

@@ -14,19 +14,19 @@ struct Encoder
     unsigned char count;
 };
 
-typedef struct Encoder* Encoder;
+typedef struct Encoder Encoder;
 
 /**
  * 
- * @param instance
+ * @param value
  * @param input
  * @return 
  */
-bool encoder_next_encode(Encoder instance, MappedFile input);
+bool encoder_next_encode(Encoder* value, MappedFile input);
 
 /**
  * 
- * @param instance
+ * @param value
  * @return 
  */
-bool encoder_end_encode(Encoder instance);
+bool encoder_end_encode(Encoder value);
