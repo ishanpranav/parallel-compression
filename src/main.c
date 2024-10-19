@@ -36,6 +36,13 @@ int main(int count, String args[])
 
         case 'j':
             jobs = strtoull(args[optind], NULL, 10);
+
+            if (!jobs)
+            {
+                main_print_usage(args);
+
+                return EXIT_FAILURE;
+            }
             break;
 
         default: return EXIT_FAILURE;
