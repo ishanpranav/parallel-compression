@@ -7,7 +7,7 @@
 
 # getopt in <main.c>: _POSIX_C_SOURCE >= 2
 
-CC=clang
+CC=gcc
 CFLAGS=-D_POSIX_C_SOURCE=2 -pedantic -std=c99 -Wall -Wextra
 
 all: nyuenc

@@ -6,7 +6,9 @@
 //  - https://www.man7.org/linux/man-pages/man3/getopt.3.html
 //  - https://www.man7.org/linux/man-pages/man3/perror.3.html
 //  - https://www.man7.org/linux/man-pages/man3/sprintf.3p.html
+//  - https://www.man7.org/linux/man-pages/man3/strtol.3.html
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,7 +25,7 @@ static void main_print_usage(String args[])
 int main(int count, String args[])
 {
     int option;
-    unsigned long long jobs;
+    unsigned long long jobs = 0;
 
     while ((option = getopt(count, args, "hj:")) != -1)
     {
@@ -35,16 +37,17 @@ int main(int count, String args[])
             return EXIT_SUCCESS;
 
         case 'j':
-            jobs = strtoull(args[optind], NULL, 10);
+            errno = 0;
+            jobs = strtoll(optarg, NULL, 10);
 
-            if (!jobs)
+            if (errno || jobs < 1)
             {
                 main_print_usage(args);
 
                 return EXIT_FAILURE;
             }
             break;
-
+            
         default: return EXIT_FAILURE;
         }
     }
@@ -82,16 +85,16 @@ int main(int count, String args[])
         sprintf(errorMessage, "%s: %s", args[0], path);
         perror(errorMessage);
         free(errorMessage);
-
+        
         return EXIT_FAILURE;
     }
 
-    if (!jobs)
+    if (true)
     {
         Encoder encoder = { 0 };
 
         for (int i = 0; i < fileCount; i++)
-        {
+        {    
             if (!encoder_next_encode(&encoder, mappedFiles.items + i))
             {
                 perror(args[0]);
