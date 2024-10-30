@@ -3,13 +3,12 @@
 // Licensed under the MIT license.
 
 #include <stdbool.h>
-#include "euler.h"
 #include "mapped_file.h"
 
 /**  */
 struct MappedFileCollection
 {
-    size_t count;
+    int count;
     struct MappedFile* items;
 };
 
@@ -25,8 +24,8 @@ typedef struct MappedFileCollection* MappedFileCollection;
  */
 int mapped_file_collection(
     MappedFileCollection instance, 
-    String paths[], 
-    size_t count);
+    char* paths[], 
+    int count);
 
 /**
  * 

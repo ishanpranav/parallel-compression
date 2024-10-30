@@ -14,15 +14,36 @@
 #include <string.h>
 #include <unistd.h>
 #include "encoder.h"
-#include "euler.h"
 #include "mapped_file_collection.h"
 
-static void main_print_usage(String args[])
+static void main_print_usage(FILE* output, char* args[])
 {
-    printf("Usage: %s [OPTION]... FILE...\n", args[0]);
+    fprintf(output, "Usage: %s [OPTION]... FILE...\n", args[0]);
 }
 
-int main(int count, String args[])
+static bool main_encode_sequential(MappedFileCollection mappedFiles)
+{
+    Encoder encoder = { 0 };
+
+    for (int i = 0; i < fileCount; i++)
+    {    
+        if (!encoder_next_encode(&encoder, mappedFiles->items + i))
+        {
+            return false;
+        }
+    }
+
+    encoder_end_encode(encoder);
+
+    return true;
+}
+
+static bool main_encode_parallel(MappedFileCollection mappedFiles)
+{
+    return true;
+}
+
+int main(int count, char* args[])
 {
     int option;
     unsigned long long jobs = 0;
@@ -32,7 +53,7 @@ int main(int count, String args[])
         switch (option)
         {
         case 'h':
-            main_print_usage(args);
+            main_print_usage(stdout, args);
 
             return EXIT_SUCCESS;
 
@@ -42,7 +63,7 @@ int main(int count, String args[])
 
             if (errno || jobs < 1)
             {
-                main_print_usage(args);
+                main_print_usage(stderr, args);
 
                 return EXIT_FAILURE;
             }
@@ -54,7 +75,7 @@ int main(int count, String args[])
 
     if (optind >= count)
     {
-        main_print_usage(args);
+        main_print_usage(stderr, args);
 
         return EXIT_FAILURE;
     }
@@ -62,52 +83,55 @@ int main(int count, String args[])
     struct MappedFileCollection mappedFiles;
     int fileCount = count - optind;
     int ex = mapped_file_collection(&mappedFiles, args + optind, fileCount);
+    char* app = args[0];
 
     if (ex == -1)
     {
-        perror(args[0]);
+        perror(app);
 
         return EXIT_FAILURE;
     }
 
     if (ex < fileCount)
     {
-        String path = args[optind + ex];
-        String errorMessage = malloc(strlen(args[0]) + strlen(path) + 3);
+        char* path = args[optind + ex];
 
-        if (!errorMessage)
-        {
-            perror(args[0]);
-
-            return EXIT_FAILURE;
-        }
-
-        sprintf(errorMessage, "%s: %s", args[0], path);
-        perror(errorMessage);
-        free(errorMessage);
+        fprintf(stderr, "%s: %s: %s\n", app, path, strerror(errno));
         
         return EXIT_FAILURE;
     }
 
-    if (true)
+    bool result;
+
+    if (jobs == 1)
     {
-        Encoder encoder = { 0 };
+        result = main_encode_sequential(&mappedFiles);
 
-        for (int i = 0; i < fileCount; i++)
-        {    
-            if (!encoder_next_encode(&encoder, mappedFiles.items + i))
-            {
-                perror(args[0]);
-                finalize_mapped_file_collection(&mappedFiles);
+        finalize_mapped_file_collection(&mappedFiles);
 
-                return EXIT_FAILURE;
-            }
+        if (!result)
+        {
+            perror(app);
+            
+            return EXIT_FAILURE;
         }
 
-        encoder_end_encode(encoder);
+        return EXIT_SUCCESS;
     }
 
+    result = main_encode_parallel(&mappedFiles);
+
+    // (1) create a producer thread that reads the mapped files
+    // (2) create consumer threads, one for each job
+
     finalize_mapped_file_collection(&mappedFiles);
+
+    if (!result)
+    {
+        perror(app);
+
+        return EXIT_FAILURE;
+    }
 
     return EXIT_SUCCESS;
 }

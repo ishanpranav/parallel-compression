@@ -16,9 +16,9 @@
 #include <unistd.h>
 #include "mapped_file_collection.h"
 
-static void mapped_file_collection_unmap(struct MappedFile* items, size_t count)
+static void mapped_file_collection_unmap(struct MappedFile* items, int count)
 {
-    for (size_t i = 0; i < count; i++) 
+    for (int i = 0; i < count; i++) 
     {
         munmap(items[i].buffer, items[i].size);
     }
@@ -28,17 +28,17 @@ static void mapped_file_collection_unmap(struct MappedFile* items, size_t count)
 
 int mapped_file_collection(
     MappedFileCollection instance, 
-    String paths[], 
-    size_t count)
+    char* paths[], 
+    int count)
 {
-    MappedFile items = malloc(count * sizeof * items);
+    struct MappedFile* items = malloc(count * sizeof * items);
 
     if (!items)
     {
         return -1;
     }
 
-    for (size_t i = 0; i < count; i++)
+    for (int i = 0; i < count; i++)
     {
         int descriptor = open(paths[i], O_RDONLY);
 
@@ -78,7 +78,7 @@ int mapped_file_collection(
 
         if (close(descriptor) == -1)
         {
-            mapped_file_collection_unmap(items, i);
+            mapped_file_collection_unmap(items, i + 1);
 
             return i;
         }

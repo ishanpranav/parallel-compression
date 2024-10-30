@@ -7,12 +7,12 @@
 
 # getopt in <main.c>: _POSIX_C_SOURCE >= 2
 
-CC=gcc
-CFLAGS=-D_POSIX_C_SOURCE=2 -pedantic -std=c99 -Wall -Wextra
+CC=clang
+CFLAGS=-D_POSIX_C_SOURCE=2 -O3 -pedantic -std=c99 -Wall -Wextra
 
 all: nyuenc
 
-nyuenc: main.c euler.h encoder mapped_file_collection
+nyuenc: main.c encoder mapped_file_collection
 	$(CC) $(CFLAGS) *.o main.c -o nyuenc
 
 encoder: encoder.c encoder.h
