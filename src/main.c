@@ -8,7 +8,10 @@
 //  - https://www.man7.org/linux/man-pages/man3/sprintf.3p.html
 //  - https://www.man7.org/linux/man-pages/man3/strtol.3.html
 
+//  - https://www.man7.org/linux/man-pages/man3/pthread_create.3.html
+
 #include <errno.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,7 +28,7 @@ static bool main_encode_sequential(MappedFileCollection mappedFiles)
 {
     Encoder encoder = { 0 };
 
-    for (int i = 0; i < fileCount; i++)
+    for (int i = 0; i < mappedFiles->count; i++)
     {    
         if (!encoder_next_encode(&encoder, mappedFiles->items + i))
         {
@@ -38,15 +41,75 @@ static bool main_encode_sequential(MappedFileCollection mappedFiles)
     return true;
 }
 
-static bool main_encode_parallel(MappedFileCollection mappedFiles)
+static void* main_produce()
 {
+    fprintf(stderr, "From producer, hello!\n");
+
+    return NULL;
+}
+
+static void* main_consume()
+{
+    fprintf(stderr, "From consumer, goodbye!\n");
+    
+    return NULL;
+}
+
+static bool main_encode_parallel(
+    MappedFileCollection mappedFiles, 
+    unsigned long jobs)
+{
+    // (1) create a producer thread that reads the mapped files
+    // (2) create consumer threads, one for each job
+
+    int ex;
+    pthread_t producer;
+
+    if ((ex = pthread_create(&producer, NULL, main_produce, NULL)))
+    {
+        errno = ex;
+
+        return false;
+    }
+
+    pthread_t* consumers = malloc(jobs * sizeof * consumers);
+
+    for (unsigned long job = 0; job < jobs; job++)
+    {
+        if ((ex = pthread_create(consumers + job, NULL, main_consume, NULL)))
+        {
+            errno = ex;
+
+            return false;
+        }
+    }
+
+    for (unsigned long job = 0; job < jobs; job++)
+    {
+        if ((ex = pthread_join(consumers[job], NULL)))
+        {
+            errno = ex;
+
+            return false;
+        }
+    }
+
+    free(consumers);
+
+    if ((ex = pthread_join(producer, NULL)))
+    {
+        errno = ex;
+
+        return false;
+    }
+
     return true;
 }
 
 int main(int count, char* args[])
 {
     int option;
-    unsigned long long jobs = 0;
+    unsigned long jobs = 0;
 
     while ((option = getopt(count, args, "hj:")) != -1)
     {
@@ -59,7 +122,7 @@ int main(int count, char* args[])
 
         case 'j':
             errno = 0;
-            jobs = strtoll(optarg, NULL, 10);
+            jobs = strtoul(optarg, NULL, 10);
 
             if (errno || jobs < 1)
             {
@@ -106,23 +169,11 @@ int main(int count, char* args[])
     if (jobs == 1)
     {
         result = main_encode_sequential(&mappedFiles);
-
-        finalize_mapped_file_collection(&mappedFiles);
-
-        if (!result)
-        {
-            perror(app);
-            
-            return EXIT_FAILURE;
-        }
-
-        return EXIT_SUCCESS;
     }
-
-    result = main_encode_parallel(&mappedFiles);
-
-    // (1) create a producer thread that reads the mapped files
-    // (2) create consumer threads, one for each job
+    else
+    {
+        result = main_encode_parallel(&mappedFiles, jobs);
+    }
 
     finalize_mapped_file_collection(&mappedFiles);
 
