@@ -172,6 +172,7 @@ bool thread_pool(
     fprintf(stderr, "%d packets arrived\n", count);
 
     // bool lastSkip = false;
+    bool nextSkip = false;
 
     for (int i = 0; i < count; i++) 
     {
@@ -179,6 +180,27 @@ bool thread_pool(
 
         unsigned char* buffer = tasks[i].buffer;
         size_t size = tasks[i].size;
+
+        if (nextSkip)
+        {
+            buffer += 2;
+            size -= 2;    
+            nextSkip = false;
+        }
+
+        if (i < count - 1)
+        {
+            unsigned char current = buffer[size - 2];
+            unsigned int count = buffer[size - 1]; 
+            unsigned char next = tasks[i + 1].buffer[0];
+            unsigned int nextCount = tasks[i + 1].buffer[1];
+
+            if (current == next && count + nextCount <= UINT_MAX)
+            {
+                buffer[size - 1] += nextCount;
+                nextSkip = true;
+            }   
+        }
 
         if (fwrite(buffer, sizeof * buffer, size, stdout) != size)
         {
