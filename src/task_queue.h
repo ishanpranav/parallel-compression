@@ -8,8 +8,8 @@
 struct TaskQueueNode
 {
     off_t offset;
-    off_t length;
-    char* buffer;
+    off_t size;
+    unsigned char* buffer;
     struct TaskQueueNode* next;
 };
 
@@ -27,8 +27,8 @@ bool task_queue(TaskQueue instance);
 bool task_queue_enqueue(
     TaskQueue instance, 
     off_t offset, 
-    off_t length, 
-    char* buffer);
+    off_t size, 
+    unsigned char buffer[]);
 
 bool task_queue_try_dequeue(TaskQueue instance, TaskQueueNode result);
 

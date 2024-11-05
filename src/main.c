@@ -18,6 +18,8 @@
 #include <unistd.h>
 #include "encoder.h"
 #include "mapped_file_collection.h"
+#include "thread_pool.h"
+#define MAIN_CHUNK_SIZE 4096
 
 static void main_print_usage(FILE* output, char* args[])
 {
@@ -62,46 +64,80 @@ static bool main_encode_parallel(
     // (1) create a producer thread that reads the mapped files
     // (2) create consumer threads, one for each job
 
-    int ex;
-    pthread_t producer;
+    struct ThreadPool threadPool;
 
-    if ((ex = pthread_create(&producer, NULL, main_produce, NULL)))
+    if (!thread_pool(&threadPool))
     {
-        errno = ex;
-
         return false;
     }
 
-    pthread_t* consumers = malloc(jobs * sizeof * consumers);
-
-    for (unsigned long job = 0; job < jobs; job++)
+    for (int i = 0; i < mappedFiles->count; i++)
     {
-        if ((ex = pthread_create(consumers + job, NULL, main_consume, NULL)))
+        off_t chunks = mappedFiles->items[i].size / MAIN_CHUNK_SIZE;
+        off_t remainderSize = mappedFiles->items[i].size % MAIN_CHUNK_SIZE;
+        
+        for (off_t chunk = 0; chunk < chunks; chunk++)
         {
-            errno = ex;
+            if (!task_queue_enqueue(
+                &threadPool.tasks, 
+                chunk * MAIN_CHUNK_SIZE, 
+                MAIN_CHUNK_SIZE,
+                mappedFiles->items[i].buffer))
+            {
+                return false;
+            }
+        }
 
+        if (!task_queue_enqueue(
+            &threadPool.tasks, 
+            chunks * MAIN_CHUNK_SIZE, 
+            remainderSize, 
+            mappedFiles->items[i].buffer))
+        {
             return false;
         }
     }
 
-    for (unsigned long job = 0; job < jobs; job++)
-    {
-        if ((ex = pthread_join(consumers[job], NULL)))
-        {
-            errno = ex;
+    // int ex;
+    // pthread_t producer;
 
-            return false;
-        }
-    }
+    // if ((ex = pthread_create(&producer, NULL, main_produce, NULL)))
+    // {
+    //     errno = ex;
 
-    free(consumers);
+    //     return false;
+    // }
 
-    if ((ex = pthread_join(producer, NULL)))
-    {
-        errno = ex;
+    // pthread_t* consumers = malloc(jobs * sizeof * consumers);
 
-        return false;
-    }
+    // for (unsigned long job = 0; job < jobs; job++)
+    // {
+    //     if ((ex = pthread_create(consumers + job, NULL, main_consume, NULL)))
+    //     {
+    //         errno = ex;
+
+    //         return false;
+    //     }
+    // }
+
+    // for (unsigned long job = 0; job < jobs; job++)
+    // {
+    //     if ((ex = pthread_join(consumers[job], NULL)))
+    //     {
+    //         errno = ex;
+
+    //         return false;
+    //     }
+    // }
+
+    // free(consumers);
+
+    // if ((ex = pthread_join(producer, NULL)))
+    // {
+    //     errno = ex;
+
+    //     return false;
+    // }
 
     return true;
 }
