@@ -84,6 +84,8 @@ static bool main_encode_parallel(
                 MAIN_CHUNK_SIZE,
                 mappedFiles->items[i].buffer))
             {
+                finalize_thread_pool(&threadPool);
+
                 return false;
             }
         }
@@ -94,12 +96,14 @@ static bool main_encode_parallel(
             remainderSize, 
             mappedFiles->items[i].buffer))
         {
+            finalize_thread_pool(&threadPool);
+            
             return false;
         }
     }
 
     finalize_thread_pool(&threadPool);
-    
+
     // int ex;
     // pthread_t producer;
 

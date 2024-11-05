@@ -21,7 +21,6 @@ bool thread_pool(ThreadPool instance)
         return false;
     }
 
-    pthread_mutex_init(&instance->mutex, NULL);
     pthread_cond_init(&instance->empty, NULL);
 
     return true;
@@ -31,6 +30,5 @@ void finalize_thread_pool(ThreadPool instance)
 {
     finalize_task_queue(&instance->tasks);
     finalize_task_queue(&instance->completedTasks);
-    pthread_mutex_destroy(&instance->mutex);
     pthread_cond_destroy(&instance->empty);
 }

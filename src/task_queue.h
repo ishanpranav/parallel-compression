@@ -3,6 +3,7 @@
 // Licensed under the MIT license.
 
 #include <sys/types.h>
+#include <pthread.h>
 #include <stdbool.h>
 
 struct TaskQueueNode
@@ -15,6 +16,7 @@ struct TaskQueueNode
 
 struct TaskQueue
 {
+    pthread_mutex_t mutex;
     struct TaskQueueNode* first;
     struct TaskQueueNode* last;
 };

@@ -10,7 +10,6 @@
 
 struct ThreadPool
 {
-    pthread_mutex_t mutex;
     pthread_cond_t empty;
     struct TaskQueue tasks;
     struct TaskQueue completedTasks;
