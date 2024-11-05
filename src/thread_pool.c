@@ -158,7 +158,7 @@ bool thread_pool(
         }
     }
 
-    struct TaskQueueNode* tasks = malloc(10000 * sizeof * tasks);
+    struct TaskQueueNode* tasks = malloc(1000000 * sizeof * tasks);
     int count = 0;
     struct TaskQueueNode completedTask;
 
@@ -166,17 +166,21 @@ bool thread_pool(
     {
         tasks[count] = completedTask;
         count++;
+
+        if (count > 1000000) {
+            exit(1);
+        }
     }
 
     qsort(tasks, count, sizeof * tasks, compare_task);
-    fprintf(stderr, "%d packets arrived\n", count);
+    // fprintf(stderr, "%d packets arrived\n", count);
 
     // bool lastSkip = false;
     bool nextSkip = false;
 
     for (int i = 0; i < count; i++) 
     {
-        fprintf(stderr, "packet %d with order %zu\n", i, tasks[i].order);
+        // fprintf(stderr, "packet %d with order %zu\n", i, tasks[i].order);
 
         unsigned char* buffer = tasks[i].buffer;
         size_t size = tasks[i].size;

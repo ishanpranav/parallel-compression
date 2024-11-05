@@ -10,3 +10,4 @@ src/*.enc
 src/*.txt
 src/test.c
 a.out
+inputs/

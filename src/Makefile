@@ -29,4 +29,4 @@ thread_pool: thread_pool.c thread_pool.h
 	$(CC) $(CFLAGS) -c thread_pool.c
 	
 clean:
-	rm -f *.o nyuenc
+	rm -f *.o nyuenc a.out
