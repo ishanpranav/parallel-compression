@@ -15,11 +15,7 @@ bool task_queue(TaskQueue instance)
     return true;
 }
 
-bool task_queue_enqueue(
-    TaskQueue instance, 
-    off_t offset, 
-    off_t size,
-    unsigned char buffer[])
+bool task_queue_enqueue(TaskQueue instance, unsigned char buffer[], off_t size)
 {
     TaskQueueNode added = malloc(sizeof * added);
 
@@ -28,7 +24,6 @@ bool task_queue_enqueue(
         return false;
     }
 
-    added->offset = offset;
     added->size = size;
     added->buffer = buffer;
     added->next = NULL;

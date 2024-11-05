@@ -8,7 +8,6 @@
 
 struct TaskQueueNode
 {
-    off_t offset;
     off_t size;
     unsigned char* buffer;
     struct TaskQueueNode* next;
@@ -26,11 +25,7 @@ typedef struct TaskQueue* TaskQueue;
 
 bool task_queue(TaskQueue instance);
 
-bool task_queue_enqueue(
-    TaskQueue instance, 
-    off_t offset, 
-    off_t size, 
-    unsigned char buffer[]);
+bool task_queue_enqueue(TaskQueue instance, unsigned char buffer[], off_t size);
 
 bool task_queue_try_dequeue(TaskQueue instance, TaskQueueNode result);
 

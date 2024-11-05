@@ -22,14 +22,15 @@ static void* thread_pool_work(void* arg)
 
     while (task_queue_try_dequeue(&instance->tasks, &result))
     {
-        printf("doing a task in file %p from %zu with size %zu...\n", (void*)result.buffer, result.offset, result.size);
+        printf("working on %p with size %zu...\n",
+            (void*)result.buffer, result.size);
     }
 
     return NULL;
 }
 
 bool thread_pool(
-    ThreadPool instance, 
+    ThreadPool instance,
     MappedFileCollection mappedFiles,
     unsigned long workers)
 {
@@ -59,33 +60,31 @@ bool thread_pool(
     {
         off_t chunks = mappedFiles->items[i].size / THREAD_POOL_CHUNK_SIZE;
         off_t remainder = mappedFiles->items[i].size % THREAD_POOL_CHUNK_SIZE;
-        
+
         for (off_t chunk = 0; chunk < chunks; chunk++)
         {
             if (!task_queue_enqueue(
-                &instance->tasks, 
-                chunk * THREAD_POOL_CHUNK_SIZE, 
-                THREAD_POOL_CHUNK_SIZE,
-                mappedFiles->items[i].buffer))
+                &instance->tasks,
+                mappedFiles->items[i].buffer + chunk * THREAD_POOL_CHUNK_SIZE,
+                THREAD_POOL_CHUNK_SIZE))
             {
                 finalize_task_queue(&instance->tasks);
                 finalize_task_queue(&instance->completedTasks);
                 free(instance->threads);
-                
+
                 return false;
             }
         }
 
         if (!task_queue_enqueue(
-            &instance->tasks, 
-            chunks * THREAD_POOL_CHUNK_SIZE, 
-            remainder, 
-            mappedFiles->items[i].buffer))
-        {   
+            &instance->tasks,
+            mappedFiles->items[i].buffer + chunks * THREAD_POOL_CHUNK_SIZE,
+            remainder))
+        {
             finalize_task_queue(&instance->tasks);
             finalize_task_queue(&instance->completedTasks);
             free(instance->threads);
-            
+
             return false;
         }
     }
@@ -95,15 +94,15 @@ bool thread_pool(
     for (unsigned long i = 0; i < workers; i++)
     {
         int ex = pthread_create(
-            instance->threads + i, 
-            NULL, 
-            thread_pool_work, 
+            instance->threads + i,
+            NULL,
+            thread_pool_work,
             instance);
 
         if (ex)
         {
             finalize_thread_pool(instance);
-            
+
             for (unsigned long j = 0; j < i; j++)
             {
                 pthread_join(instance->threads[j], NULL);
@@ -118,7 +117,7 @@ bool thread_pool(
     for (unsigned long i = 0; i < workers; i++)
     {
         int ex = pthread_join(instance->threads[i], NULL);
-    
+
         if (ex)
         {
             finalize_thread_pool(instance);

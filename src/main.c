@@ -16,7 +16,6 @@
 #include "encoder.h"
 #include "mapped_file_collection.h"
 #include "thread_pool.h"
-#define MAIN_CHUNK_SIZE 4096
 
 static void main_print_usage(FILE* output, char* args[])
 {
@@ -44,9 +43,6 @@ static bool main_encode_parallel(
     MappedFileCollection mappedFiles, 
     unsigned long jobs)
 {
-    // (1) create a producer thread that reads the mapped files
-    // (2) create consumer threads, one for each job
-
     struct ThreadPool threadPool;
 
     if (!thread_pool(&threadPool, mappedFiles,  jobs))
@@ -55,37 +51,6 @@ static bool main_encode_parallel(
     }
 
     finalize_thread_pool(&threadPool);
-
-    // pthread_t* consumers = malloc(jobs * sizeof * consumers);
-
-    // for (unsigned long job = 0; job < jobs; job++)
-    // {
-    //     if ((ex = pthread_create()))
-    //     {
-    //         errno = ex;
-
-    //         return false;
-    //     }
-    // }
-
-    // for (unsigned long job = 0; job < jobs; job++)
-    // {
-    //     if ((ex = pthread_join(consumers[job], NULL)))
-    //     {
-    //         errno = ex;
-
-    //         return false;
-    //     }
-    // }
-
-    // free(consumers);
-
-    // if ((ex = pthread_join(producer, NULL)))
-    // {
-    //     errno = ex;
-
-    //     return false;
-    // }
 
     return true;
 }
