@@ -8,12 +8,14 @@
 #include <stdbool.h>
 #include "mapped_file.h"
 
+/** */
 struct Encoder
 {
-    unsigned char previous;
+    char previous;
     unsigned char count;
 };
 
+/** */
 typedef struct Encoder Encoder;
 
 /**

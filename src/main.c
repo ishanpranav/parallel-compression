@@ -51,7 +51,7 @@ static void* main_produce()
 static void* main_consume()
 {
     fprintf(stderr, "From consumer, goodbye!\n");
-    
+
     return NULL;
 }
 
@@ -109,7 +109,7 @@ static bool main_encode_parallel(
 int main(int count, char* args[])
 {
     int option;
-    unsigned long jobs = 0;
+    unsigned long jobs = 1;
 
     while ((option = getopt(count, args, "hj:")) != -1)
     {

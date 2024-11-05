@@ -8,3 +8,5 @@ src/nyuenc
 nyuenc-autograder/
 src/*.enc
 src/*.txt
+src/test.c
+a.out

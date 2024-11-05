@@ -7,12 +7,12 @@
 
 #include <limits.h>
 #include <string.h>
-#include <unistd.h>
+#include <stdio.h>
 #include "encoder.h"
 
 static bool encoder_flush(Encoder instance)
 {
-    return write(STDOUT_FILENO, &instance, sizeof instance) != -1;
+    return fwrite(&instance, sizeof instance, 1, stdout);
 }
 
 bool encoder_next_encode(Encoder* instance, MappedFile input)
@@ -21,7 +21,7 @@ bool encoder_next_encode(Encoder* instance, MappedFile input)
 
     for (off_t i = 0; i < input->size; i++)
     {
-        unsigned char current = input->buffer[i];
+        char current = input->buffer[i];
 
         if (!clone.count)
         {
