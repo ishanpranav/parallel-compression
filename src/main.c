@@ -98,6 +98,8 @@ static bool main_encode_parallel(
         }
     }
 
+    finalize_thread_pool(&threadPool);
+    
     // int ex;
     // pthread_t producer;
 

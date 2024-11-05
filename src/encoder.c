@@ -3,7 +3,7 @@
 // Licensed under the MIT license.
 
 // References:
-//  - https://www.man7.org/linux/man-pages/man2/write.2.html
+//  - https://www.man7.org/linux/man-pages/man3/fwrite.3p.html
 
 #include <limits.h>
 #include <string.h>
