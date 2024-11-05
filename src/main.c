@@ -8,10 +8,7 @@
 //  - https://www.man7.org/linux/man-pages/man3/sprintf.3p.html
 //  - https://www.man7.org/linux/man-pages/man3/strtol.3.html
 
-//  - https://www.man7.org/linux/man-pages/man3/pthread_create.3.html
-
 #include <errno.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,20 +40,6 @@ static bool main_encode_sequential(MappedFileCollection mappedFiles)
     return true;
 }
 
-static void* main_produce()
-{
-    fprintf(stderr, "From producer, hello!\n");
-
-    return NULL;
-}
-
-static void* main_consume()
-{
-    fprintf(stderr, "From consumer, goodbye!\n");
-
-    return NULL;
-}
-
 static bool main_encode_parallel(
     MappedFileCollection mappedFiles, 
     unsigned long jobs)
@@ -66,59 +49,18 @@ static bool main_encode_parallel(
 
     struct ThreadPool threadPool;
 
-    if (!thread_pool(&threadPool))
+    if (!thread_pool(&threadPool, mappedFiles,  jobs))
     {
         return false;
     }
 
-    for (int i = 0; i < mappedFiles->count; i++)
-    {
-        off_t chunks = mappedFiles->items[i].size / MAIN_CHUNK_SIZE;
-        off_t remainderSize = mappedFiles->items[i].size % MAIN_CHUNK_SIZE;
-        
-        for (off_t chunk = 0; chunk < chunks; chunk++)
-        {
-            if (!task_queue_enqueue(
-                &threadPool.tasks, 
-                chunk * MAIN_CHUNK_SIZE, 
-                MAIN_CHUNK_SIZE,
-                mappedFiles->items[i].buffer))
-            {
-                finalize_thread_pool(&threadPool);
-
-                return false;
-            }
-        }
-
-        if (!task_queue_enqueue(
-            &threadPool.tasks, 
-            chunks * MAIN_CHUNK_SIZE, 
-            remainderSize, 
-            mappedFiles->items[i].buffer))
-        {
-            finalize_thread_pool(&threadPool);
-            
-            return false;
-        }
-    }
-
     finalize_thread_pool(&threadPool);
-
-    // int ex;
-    // pthread_t producer;
-
-    // if ((ex = pthread_create(&producer, NULL, main_produce, NULL)))
-    // {
-    //     errno = ex;
-
-    //     return false;
-    // }
 
     // pthread_t* consumers = malloc(jobs * sizeof * consumers);
 
     // for (unsigned long job = 0; job < jobs; job++)
     // {
-    //     if ((ex = pthread_create(consumers + job, NULL, main_consume, NULL)))
+    //     if ((ex = pthread_create()))
     //     {
     //         errno = ex;
 

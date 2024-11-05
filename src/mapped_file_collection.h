@@ -2,6 +2,8 @@
 // Copyright (c) 2024 Ishan Pranav
 // Licensed under the MIT license.
 
+#ifndef MAPPED_FILE_COLLECTION
+#define MAPPED_FILE_COLLECTION
 #include <stdbool.h>
 #include "mapped_file.h"
 
@@ -32,3 +34,5 @@ int mapped_file_collection(
  * @param instance
  */
 void finalize_mapped_file_collection(MappedFileCollection instance);
+
+#endif
