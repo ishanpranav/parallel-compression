@@ -15,7 +15,7 @@ bool task_queue(TaskQueue instance)
     return true;
 }
 
-bool task_queue_enqueue(TaskQueue instance, unsigned char buffer[], off_t size)
+bool task_queue_enqueue(TaskQueue instance, off_t order, unsigned char buffer[], off_t size)
 {
     TaskQueueNode added = malloc(sizeof * added);
 
@@ -24,8 +24,9 @@ bool task_queue_enqueue(TaskQueue instance, unsigned char buffer[], off_t size)
         return false;
     }
 
-    added->size = size;
+    added->order = order;
     added->buffer = buffer;
+    added->size = size;
     added->next = NULL;
     
     pthread_mutex_lock(&instance->mutex);

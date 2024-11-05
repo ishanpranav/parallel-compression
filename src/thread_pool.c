@@ -10,6 +10,8 @@
 
 #include <errno.h>
 #include <stdlib.h>
+#include <string.h>
+#include "encoder.h"
 #include "thread_pool.h"
 #define THREAD_POOL_CHUNK_SIZE 4096
 
@@ -18,15 +20,38 @@
 static void* thread_pool_work(void* arg)
 {
     ThreadPool instance = arg;
-    struct TaskQueueNode result;
+    struct TaskQueueNode task;
 
-    while (task_queue_try_dequeue(&instance->tasks, &result))
+    while (task_queue_try_dequeue(&instance->tasks, &task))
     {
-        printf("working on %p with size %zu...\n",
-            (void*)result.buffer, result.size);
+        Encoder encoder = { 0 };
+        unsigned char* output = malloc(2 * task.size * sizeof * output);
+        off_t outputSize = encoder_encode(
+            output,
+            &encoder,
+            task.buffer,
+            task.size);
+
+        memcpy(output + outputSize, &encoder, sizeof encoder);
+
+        outputSize += sizeof encoder;
+
+        task_queue_enqueue(
+            &instance->completedTasks,
+            task.order,
+            output,
+            outputSize);
     }
 
     return NULL;
+}
+
+int compare_task(const void* p, const void* q)
+{
+    const struct TaskQueueNode* a = (const struct TaskQueueNode*)p;
+    const struct TaskQueueNode* b = (const struct TaskQueueNode*)q;
+
+    return a->order - b->order;
 }
 
 bool thread_pool(
@@ -56,6 +81,8 @@ bool thread_pool(
         return false;
     }
 
+    off_t order = 1;
+
     for (int i = 0; i < mappedFiles->count; i++)
     {
         off_t chunks = mappedFiles->items[i].size / THREAD_POOL_CHUNK_SIZE;
@@ -65,6 +92,7 @@ bool thread_pool(
         {
             if (!task_queue_enqueue(
                 &instance->tasks,
+                order,
                 mappedFiles->items[i].buffer + chunk * THREAD_POOL_CHUNK_SIZE,
                 THREAD_POOL_CHUNK_SIZE))
             {
@@ -78,6 +106,7 @@ bool thread_pool(
 
         if (!task_queue_enqueue(
             &instance->tasks,
+            order,
             mappedFiles->items[i].buffer + chunks * THREAD_POOL_CHUNK_SIZE,
             remainder))
         {
@@ -87,6 +116,8 @@ bool thread_pool(
 
             return false;
         }
+
+        order++;
     }
 
     pthread_cond_init(&instance->empty, NULL);
@@ -127,6 +158,36 @@ bool thread_pool(
             return false;
         }
     }
+
+    struct TaskQueueNode* tasks = malloc(10000 * sizeof * tasks);
+    int count = 0;
+    struct TaskQueueNode completedTask;
+
+    while (task_queue_try_dequeue(&instance->completedTasks, &completedTask))
+    {
+        tasks[count] = completedTask;
+        count++;
+    }
+
+    qsort(tasks, count, sizeof * tasks, compare_task);
+
+    for (int i = 0; i < count; i++) 
+    {
+        if (fwrite(
+            tasks[i].buffer,
+            sizeof * tasks[i].buffer,
+            tasks[i].size,
+            stdout) != (size_t)tasks[i].size)
+        {
+            finalize_thread_pool(instance);
+
+            return false;
+        }
+
+        free(tasks[i].buffer);
+    }
+    
+    free(tasks);
 
     return true;
 }

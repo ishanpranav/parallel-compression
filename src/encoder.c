@@ -21,7 +21,7 @@ bool encoder_next_encode(Encoder* instance, MappedFile input)
 
     for (off_t i = 0; i < input->size; i++)
     {
-        char current = input->buffer[i];
+        unsigned char current = input->buffer[i];
 
         if (!clone.count)
         {
@@ -52,6 +52,46 @@ bool encoder_next_encode(Encoder* instance, MappedFile input)
     *instance = clone;
 
     return true;
+}
+
+off_t encoder_encode(
+    unsigned char output[], 
+    Encoder* instance,
+    unsigned char input[],
+    off_t inputSize)
+{
+    Encoder clone = *instance;
+    off_t outputSize = 0;
+
+    for (off_t i = 0; i < inputSize; i++)
+    {
+        unsigned char current = input[i];
+
+        if (!clone.count)
+        {
+            clone.previous = current;
+            clone.count = 1;
+
+            continue;
+        }
+
+        if (current == clone.previous && clone.count < UCHAR_MAX)
+        {
+            clone.count++;
+
+            continue;
+        }
+        
+        memcpy(output + outputSize, &clone, sizeof clone);
+        
+        outputSize += sizeof clone;
+        clone.count = 1;
+        clone.previous = current;
+    }
+
+    *instance = clone;
+
+    return outputSize;
 }
 
 bool encoder_end_encode(Encoder instance)

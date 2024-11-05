@@ -11,7 +11,7 @@
 /** */
 struct Encoder
 {
-    char previous;
+    unsigned char previous;
     unsigned char count;
 };
 
@@ -32,3 +32,17 @@ bool encoder_next_encode(Encoder* value, MappedFile input);
  * @return 
  */
 bool encoder_end_encode(Encoder value);
+
+/**
+ * 
+ * @param output
+ * @param instance
+ * @param input
+ * @param inputSize
+ * @return 
+ */
+off_t encoder_encode(
+    unsigned char output[], 
+    Encoder* instance,
+    unsigned char input[],
+    off_t inputSize);
