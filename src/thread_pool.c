@@ -99,8 +99,10 @@ bool thread_pool(
 
                 return false;
             }
+            
+            order++;
         }
-
+        
         if (!task_queue_enqueue(
             &instance->tasks,
             order,
@@ -113,7 +115,7 @@ bool thread_pool(
 
             return false;
         }
-
+        
         order++;
     }
 
@@ -167,35 +169,16 @@ bool thread_pool(
     }
 
     qsort(tasks, count, sizeof * tasks, compare_task);
+    fprintf(stderr, "%d packets arrived\n", count);
 
     // bool lastSkip = false;
 
     for (int i = 0; i < count; i++) 
     {
+        fprintf(stderr, "packet %d with order %zu\n", i, tasks[i].order);
+
         unsigned char* buffer = tasks[i].buffer;
         size_t size = tasks[i].size;
-
-        // if (lastSkip) 
-        // {
-        //     buffer++;
-        //     size--;
-        // }
-
-        // lastSkip = false;
-
-        // if (i < count - 1)
-        // {
-        //     unsigned char lastX = buffer[size - 2];
-        //     unsigned char lastC = buffer[size - 1];
-        //     unsigned char firstX = tasks[i + 1].buffer[0];
-        //     unsigned char firstC = tasks[i + 1].buffer[1];
-
-        //     if ((int)lastC + (int)firstC < (int)UCHAR_MAX && lastX == firstX) 
-        //     {
-        //         buffer[size - 1] += firstC;
-        //         lastSkip = true;
-        //     }
-        // }
 
         if (fwrite(buffer, sizeof * buffer, size, stdout) != size)
         {
