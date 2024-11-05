@@ -32,10 +32,6 @@ static void* thread_pool_work(void* arg)
             task.buffer,
             task.size);
 
-        memcpy(output + outputSize, &encoder, sizeof encoder);
-
-        outputSize += sizeof encoder;
-
         task_queue_enqueue(
             &instance->completedTasks,
             task.order,
@@ -54,6 +50,7 @@ int compare_task(const void* p, const void* q)
     return a->order - b->order;
 }
 
+#include <limits.h>
 bool thread_pool(
     ThreadPool instance,
     MappedFileCollection mappedFiles,
@@ -171,22 +168,48 @@ bool thread_pool(
 
     qsort(tasks, count, sizeof * tasks, compare_task);
 
+    // bool lastSkip = false;
+
     for (int i = 0; i < count; i++) 
     {
-        if (fwrite(
-            tasks[i].buffer,
-            sizeof * tasks[i].buffer,
-            tasks[i].size,
-            stdout) != (size_t)tasks[i].size)
+        unsigned char* buffer = tasks[i].buffer;
+        size_t size = tasks[i].size;
+
+        // if (lastSkip) 
+        // {
+        //     buffer++;
+        //     size--;
+        // }
+
+        // lastSkip = false;
+
+        // if (i < count - 1)
+        // {
+        //     unsigned char lastX = buffer[size - 2];
+        //     unsigned char lastC = buffer[size - 1];
+        //     unsigned char firstX = tasks[i + 1].buffer[0];
+        //     unsigned char firstC = tasks[i + 1].buffer[1];
+
+        //     if ((int)lastC + (int)firstC < (int)UCHAR_MAX && lastX == firstX) 
+        //     {
+        //         buffer[size - 1] += firstC;
+        //         lastSkip = true;
+        //     }
+        // }
+
+        if (fwrite(buffer, sizeof * buffer, size, stdout) != size)
         {
             finalize_thread_pool(instance);
 
             return false;
         }
+    }
 
+    for (int i = 0; i < count; i++)
+    {
         free(tasks[i].buffer);
     }
-    
+
     free(tasks);
 
     return true;

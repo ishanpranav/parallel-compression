@@ -89,6 +89,13 @@ off_t encoder_encode(
         clone.previous = current;
     }
 
+    if (clone.count)
+    {
+        memcpy(output + outputSize, &clone, sizeof clone);
+
+        outputSize += sizeof clone;
+    }
+
     *instance = clone;
 
     return outputSize;
