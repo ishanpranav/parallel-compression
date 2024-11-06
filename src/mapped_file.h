@@ -17,6 +17,6 @@ struct MappedFile
 };
 
 /** */
-typedef struct MappedFile* MappedFile;
+typedef struct MappedFile MappedFile;
 
 #endif

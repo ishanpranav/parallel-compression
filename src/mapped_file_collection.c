@@ -16,7 +16,7 @@
 #include <unistd.h>
 #include "mapped_file_collection.h"
 
-static void mapped_file_collection_unmap(struct MappedFile* items, int count)
+static void mapped_file_collection_unmap(MappedFile items[], int count)
 {
     for (int i = 0; i < count; i++) 
     {
@@ -31,7 +31,7 @@ int mapped_file_collection(
     char* paths[], 
     int count)
 {
-    struct MappedFile* items = malloc(count * sizeof * items);
+    MappedFile* items = malloc(count * sizeof * items);
 
     if (!items)
     {

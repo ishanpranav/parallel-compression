@@ -19,9 +19,9 @@ bool encoder_next_encode(Encoder* instance, MappedFile input)
 {
     Encoder clone = *instance;
 
-    for (off_t i = 0; i < input->size; i++)
+    for (off_t i = 0; i < input.size; i++)
     {
-        unsigned char current = input->buffer[i];
+        unsigned char current = input.buffer[i];
 
         if (!clone.count)
         {
