@@ -58,7 +58,6 @@ struct TaskQueue
     size_t count;
     size_t index;
     pthread_mutex_t mutex;
-    pthread_cond_t emptyCondition;
     struct Task* items;
 };
 
@@ -109,7 +108,6 @@ bool task_queue(TaskQueue instance, MappedFileCollection mappedFiles)
     instance->index = 0;
 
     pthread_mutex_init(&instance->mutex, NULL);
-    pthread_cond_init(&instance->emptyCondition, NULL);
 
     return true;
 }
@@ -194,7 +192,6 @@ void finalize_task_queue(TaskQueue instance)
 
     free(instance->items);
     pthread_mutex_destroy(&instance->mutex);
-    pthread_cond_destroy(&instance->emptyCondition);
 }
 
 static bool main_merge(struct Task tasks[], size_t count)
