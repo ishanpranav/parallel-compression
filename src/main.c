@@ -48,7 +48,9 @@ struct ThreadPool
     off_t tasksCount;
     pthread_mutex_t mutex;
     pthread_cond_t notEmptyCondition;
+    pthread_cond_t terminateCondition;
     struct Task* tasks;
+    struct Task** completedTasks;
 };
 
 typedef struct ThreadPool* ThreadPool;
@@ -57,6 +59,7 @@ void finalize_thread_pool(ThreadPool instance)
 {
     pthread_mutex_destroy(&instance->mutex);
     pthread_cond_destroy(&instance->notEmptyCondition);
+    pthread_cond_destroy(&instance->terminateCondition);
     free(instance->tasks);
 }
 
@@ -135,6 +138,8 @@ static void* thread_pool_consume(void* arg)
         pthread_mutex_unlock(&pool->mutex);
     }
 
+    pthread_cond_signal(&pool->terminateCondition);
+
     return result;
 }
 
@@ -144,8 +149,8 @@ static bool task_merge(struct Task tasks[], size_t count)
 
     for (size_t i = 0; i < count; i++)
     {
-        fprintf(stderr, "for %zu: ", i);
-        fprintf(stderr, "in %zu, out %zu\n", tasks[i].inputSize, tasks[i].outputSize);
+        // fprintf(stderr, "for %zu: ", i);
+        // fprintf(stderr, "in %zu, out %zu\n", tasks[i].inputSize, tasks[i].outputSize);
 
         unsigned char* buffer = tasks[i].output;
         size_t size = tasks[i].outputSize;
@@ -203,6 +208,17 @@ bool thread_pool(
         return false;
     }
 
+    ex = pthread_cond_init(&instance->terminateCondition, NULL);
+
+    if (ex)
+    {
+        pthread_cond_destroy(&instance->notEmptyCondition);
+
+        errno = ex;
+
+        return false;
+    }
+
     instance->tasksCount = 0;
     instance->taskIndex = 0;
     instance->tasks = NULL;
@@ -213,6 +229,7 @@ bool thread_pool(
     {
         pthread_mutex_destroy(&instance->mutex);
         pthread_cond_destroy(&instance->notEmptyCondition);
+        pthread_cond_destroy(&instance->terminateCondition);
 
         return false;
     }
@@ -220,9 +237,9 @@ bool thread_pool(
     for (unsigned long job = 0; job < jobs; job++)
     {
         ex = pthread_create(
-            consumers + job, 
-            NULL, 
-            &thread_pool_consume, 
+            consumers + job,
+            NULL,
+            &thread_pool_consume,
             instance);
 
         if (ex)
@@ -232,6 +249,7 @@ bool thread_pool(
             free(consumers);
             pthread_mutex_destroy(&instance->mutex);
             pthread_cond_destroy(&instance->notEmptyCondition);
+            pthread_cond_destroy(&instance->terminateCondition);
 
             return false;
         }
@@ -281,11 +299,12 @@ bool thread_pool(
     {
         pthread_mutex_destroy(&instance->mutex);
         pthread_cond_destroy(&instance->notEmptyCondition);
+        pthread_cond_destroy(&instance->terminateCondition);
 
         return false;
     }
 
-    size_t j = 0;
+    size_t id = 0;
 
     for (int i = 0; i < mappedFiles->count; i++)
     {
@@ -295,80 +314,97 @@ bool thread_pool(
 
         for (off_t offset = 0; offset < offsets; offset++)
         {
-            tasks[j].input = mappedFile.buffer + offset * TASK_SIZE;
-            tasks[j].inputSize = TASK_SIZE;
-            j++;
+            tasks[id].id = id;
+            tasks[id].input = mappedFile.buffer + offset * TASK_SIZE;
+            tasks[id].inputSize = TASK_SIZE;
+            id++;
         }
 
         if (remainder)
         {
-            tasks[j].input = mappedFile.buffer + offsets * TASK_SIZE;
-            tasks[j].inputSize = remainder;
-            j++;
+            tasks[id].id = id;
+            tasks[id].input = mappedFile.buffer + offsets * TASK_SIZE;
+            tasks[id].inputSize = remainder;
+            id++;
         }
     }
 
     pthread_mutex_lock(&instance->mutex);
-    
+
     instance->tasksCount = tasksCount;
     instance->tasks = tasks;
 
     pthread_mutex_unlock(&instance->mutex);
     pthread_cond_signal(&instance->notEmptyCondition);
-    fprintf(stderr, "signaled j is %zu, tasksCount is %zu\n", j, tasksCount);
 
-    for (unsigned long job = 0; job < jobs; job++)
+    // for (unsigned long job = 0; job < jobs; job++)
+    // {
+    //     void* result;
+
+    //     ex = pthread_join(consumers[job], &result);
+
+    //     if (ex)
+    //     {
+    //         errno = ex;
+
+    //         free(consumers);
+    //         free(instance->tasks);
+    //         pthread_mutex_destroy(&instance->mutex);
+    //         pthread_cond_destroy(&instance->notEmptyCondition);
+    //         pthread_cond_destroy(&instance->terminateCondition);
+
+    //         return false;
+    //     }
+
+    //     if (!result)
+    //     {
+    //         free(consumers);
+    //         free(instance->tasks);
+    //         pthread_mutex_destroy(&instance->mutex);
+    //         pthread_cond_destroy(&instance->notEmptyCondition);
+    //         pthread_cond_destroy(&instance->terminateCondition);
+
+    //         return false;
+    //     }
+
+    //     ex = *(int*)result;
+
+    //     free(result);
+
+    //     if (ex)
+    //     {
+    //         errno = ex;
+
+    //         free(consumers);
+    //         free(instance->tasks);
+    //         pthread_mutex_destroy(&instance->mutex);
+    //         pthread_cond_destroy(&instance->notEmptyCondition);
+    //         pthread_cond_destroy(&instance->terminateCondition);
+
+    //         return false;
+    //     }
+    // }
+
+    while (instance->taskIndex < instance->tasksCount)
     {
-        void* result;
-    
-        ex = pthread_join(consumers[job], &result);
+        ex = pthread_cond_wait(&instance->terminateCondition, &instance->mutex);
 
         if (ex)
         {
             errno = ex;
-
-            free(consumers);
-            free(instance->tasks);
-            pthread_mutex_destroy(&instance->mutex);
-            pthread_cond_destroy(&instance->notEmptyCondition);
-
-            return false;
-        }
-
-        if (!result)
-        {
-            free(consumers);
-            free(instance->tasks);
-            pthread_mutex_destroy(&instance->mutex);
-            pthread_cond_destroy(&instance->notEmptyCondition);
-
-            return false;
-        }
-
-        ex = *(int*)result;
-
-        free(result);
-
-        if (ex)
-        {
-            errno = ex;
-
-            free(consumers);
-            free(instance->tasks);
-            pthread_mutex_destroy(&instance->mutex);
-            pthread_cond_destroy(&instance->notEmptyCondition);
 
             return false;
         }
     }
 
     free(consumers);
-    
+
     ex = task_merge(instance->tasks, instance->tasksCount);
 
     free(instance->tasks);
     pthread_mutex_destroy(&instance->mutex);
     pthread_cond_destroy(&instance->notEmptyCondition);
+    pthread_cond_destroy(&instance->terminateCondition);
 
     return ex;
 }

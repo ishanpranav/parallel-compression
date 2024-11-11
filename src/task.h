@@ -8,10 +8,11 @@
 
 struct Task
 {
+    unsigned char output[TASK_SIZE * sizeof(Encoder)];
     off_t inputSize;
     off_t outputSize;
+    size_t id;
     unsigned char* input;
-    unsigned char output[TASK_SIZE * sizeof(Encoder)];
 };
 
 typedef struct Task* Task;
