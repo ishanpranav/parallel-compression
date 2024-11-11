@@ -44,18 +44,97 @@ static bool main_encode_sequential(MappedFileCollection mappedFiles)
 
 struct ThreadPool
 {
-    bool empty;
     off_t taskIndex;
     off_t tasksCount;
     pthread_mutex_t mutex;
-    pthread_cond_t emptyCondition;
-    pthread_cond_t fullCondition;
+    pthread_cond_t notEmptyCondition;
     struct Task* tasks;
 };
 
 typedef struct ThreadPool* ThreadPool;
 
-bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
+void finalize_thread_pool(ThreadPool instance)
+{
+    pthread_mutex_destroy(&instance->mutex);
+    pthread_cond_destroy(&instance->notEmptyCondition);
+    free(instance->tasks);
+}
+
+static void task_execute(Task instance)
+{
+    off_t outputSize = 0;
+    Encoder encoder = { 0 };
+
+    for (off_t i = 0; i < instance->inputSize; i++)
+    {
+        unsigned char current = instance->input[i];
+
+        if (!encoder.count)
+        {
+            encoder.previous = current;
+            encoder.count = 1;
+
+            continue;
+        }
+
+        if (current == encoder.previous && encoder.count < UCHAR_MAX)
+        {
+            encoder.count++;
+
+            continue;
+        }
+
+        memcpy(instance->output + outputSize, &encoder, sizeof encoder);
+
+        outputSize += sizeof encoder;
+        encoder.count = 1;
+        encoder.previous = current;
+    }
+
+    if (encoder.count)
+    {
+        memcpy(instance->output + outputSize, &encoder, sizeof encoder);
+
+        outputSize += sizeof encoder;
+    }
+
+    instance->outputSize = outputSize;
+}
+
+static void* thread_pool_consume(void* arg)
+{
+    ThreadPool pool = (ThreadPool)arg;
+    int* result = calloc(1, sizeof * result);
+
+    if (!result)
+    {
+        return NULL;
+    }
+
+    for (;;)
+    {
+        fprintf(stderr, "consumer: wait for task, taskIndex = %zu, tasksCount = %zu\n", pool->taskIndex, pool->tasksCount);
+
+        while (pool->taskIndex >= pool->tasksCount)
+        {
+            int ex = pthread_cond_wait(&pool->notEmptyCondition, &pool->mutex);
+
+            if (ex)
+            {
+                *result = ex;
+
+                return result;
+            }
+        }
+
+        task_execute(pool->tasks + pool->taskIndex);
+    }
+}
+
+bool thread_pool(
+    ThreadPool instance,
+    MappedFileCollection mappedFiles,
+    unsigned long jobs)
 {
     int ex = pthread_mutex_init(&instance->mutex, NULL);
 
@@ -66,7 +145,7 @@ bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
         return false;
     }
 
-    ex = pthread_cond_init(&instance->emptyCondition, NULL);
+    ex = pthread_cond_init(&instance->notEmptyCondition, NULL);
 
     if (ex)
     {
@@ -75,16 +154,61 @@ bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
         return false;
     }
 
-    ex = pthread_cond_init(&instance->fullCondition, NULL);
+    pthread_t* consumers = malloc(jobs * sizeof * consumers);
 
-    if (ex)
+    if (!consumers)
     {
-        errno = ex;
-
-        pthread_cond_destroy(&instance->emptyCondition);
+        pthread_mutex_destroy(&instance->mutex);
+        pthread_cond_destroy(&instance->notEmptyCondition);
 
         return false;
     }
+
+    for (unsigned long job = 0; job < jobs; job++)
+    {
+        ex = pthread_create(
+            consumers + job, 
+            NULL, 
+            &thread_pool_consume, 
+            instance);
+
+        if (ex)
+        {
+            errno = ex;
+
+            free(consumers);
+            pthread_mutex_destroy(&instance->mutex);
+            pthread_cond_destroy(&instance->notEmptyCondition);
+
+            return false;
+        }
+    }
+
+    // void* result;
+
+    // if (!result)
+    // {
+    //     free(consumers);
+    //     pthread_mutex_destroy(&instance->mutex);
+    //     pthread_cond_destroy(&instance->notEmptyCondition);
+
+    //     return false;
+    // }
+
+    // ex = *(int*)result;
+
+    // free(result);
+
+    // if (ex)
+    // {
+    //     errno = ex;
+
+    //     free(consumers);
+    //     pthread_mutex_destroy(&instance->mutex);
+    //     pthread_cond_destroy(&instance->notEmptyCondition);
+
+    //     return false;
+    // }
 
     size_t tasksCount = 0;
 
@@ -102,8 +226,8 @@ bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
 
     if (!tasks)
     {
-        pthread_cond_destroy(&instance->emptyCondition);
-        pthread_cond_destroy(&instance->fullCondition);
+        pthread_mutex_destroy(&instance->mutex);
+        pthread_cond_destroy(&instance->notEmptyCondition);
 
         return false;
     }
@@ -135,206 +259,12 @@ bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
 
     instance->tasks = tasks;
     instance->tasksCount = tasksCount;
-    instance->taskIndex = -1;
-    instance->empty = true;
+    instance->taskIndex = 0;
 
     return true;
 }
 
-void finalize_thread_pool(ThreadPool instance)
-{
-    pthread_mutex_destroy(&instance->mutex);
-    pthread_cond_destroy(&instance->emptyCondition);
-    pthread_cond_destroy(&instance->fullCondition);
-    free(instance->tasks);
-}
-
-static void* main_produce(void* arg)
-{
-    ThreadPool pool = (ThreadPool)arg;
-    int* result = calloc(1, sizeof * result);
-
-    if (!result)
-    {
-        return NULL;
-    }
-
-    for (;;)
-    {
-        fprintf(stderr, "producer: lock\n");
-
-        int ex = pthread_mutex_lock(&pool->mutex);
-
-        if (ex)
-        {
-            *result = ex;
-            
-            return result;
-        }
-
-        while (!pool->empty)
-        {
-            fprintf(stderr, "producer: wait until empty\n");
-
-            ex = pthread_cond_wait(&pool->emptyCondition, &pool->mutex);
-
-            if (ex)
-            {
-                *result = ex;
-
-                return result;
-            }
-        }
-
-        if (pool->taskIndex == pool->tasksCount)
-        {
-            fprintf(stderr, "producer: unlock, exhausted\n");
-
-            ex = pthread_mutex_unlock(&pool->mutex);
-            *result = ex;
-
-            return result;
-        }
-        
-        fprintf(stderr, "producer: signal full\n");
-
-        pool->taskIndex++;
-        pool->empty = false;
-        ex = pthread_cond_signal(&pool->fullCondition);
-
-        if (ex)
-        {
-            *result = ex;
-
-            return result;
-        }
-
-        fprintf(stderr, "producer: unlock\n");
-        
-        ex = pthread_mutex_unlock(&pool->mutex);
-
-        if (ex)
-        {
-            *result = ex;
-
-            return result;
-        }
-    }
-}
-
-void task_execute(Task instance)
-{
-    off_t outputSize = 0;
-    Encoder encoder = { 0 };
-
-    for (off_t i = 0; i < instance->inputSize; i++)
-    {
-        unsigned char current = instance->input[i];
-
-        if (!encoder.count)
-        {
-            encoder.previous = current;
-            encoder.count = 1;
-
-            continue;
-        }
-
-        if (current == encoder.previous && encoder.count < UCHAR_MAX)
-        {
-            encoder.count++;
-
-            continue;
-        }
-        
-        memcpy(instance->output + outputSize, &encoder, sizeof encoder);
-        
-        outputSize += sizeof encoder;
-        encoder.count = 1;
-        encoder.previous = current;
-    }
-
-    if (encoder.count)
-    {
-        memcpy(instance->output + outputSize, &encoder, sizeof encoder);
-
-        outputSize += sizeof encoder;
-    }
-
-    instance->outputSize = outputSize;
-}
-
-static void* main_consume(void* arg)
-{
-    ThreadPool pool = (ThreadPool)arg;
-    int* result = calloc(1, sizeof * result);
-
-    if (!result)
-    {
-        return NULL;
-    }
-
-    for (;;)
-    {
-        fprintf(stderr, "consumer: lock\n");
-
-        int ex = pthread_mutex_lock(&pool->mutex);
-
-        if (ex)
-        {
-            *result = ex;
-
-            return result;
-        }
-
-        while (pool->empty && pool->taskIndex < pool->tasksCount)
-        {
-            fprintf(stderr, "consumer: wait until full\n");
-        
-            ex = pthread_cond_wait(&pool->fullCondition, &pool->mutex);
-
-            if (ex)
-            {
-                *result = ex;
-
-                return result;
-            }
-        }
-
-        fprintf(stderr, "consumer: signal empty\n");
-
-        pool->empty = true;
-        ex = pthread_cond_signal(&pool->emptyCondition);
-
-        if (ex)
-        {
-            *result = ex;
-
-            return result;
-        }
-
-        fprintf(stderr, "consumer: unlock\n");
-
-        ex = pthread_mutex_unlock(&pool->mutex);
-
-        if (ex)
-        {
-            *result = ex;
-
-            return result;
-        }
-
-        if (pool->taskIndex == pool->tasksCount)
-        {
-            fprintf(stderr, "consumer: stop, exhausted\n");
-            
-            return result;
-        }
-        
-        task_execute(pool->tasks + pool->taskIndex);
-    }
-}
-
-bool task_merge(struct Task tasks[], size_t count)
+static bool task_merge(struct Task tasks[], size_t count)
 {
     bool merging = false;
 
@@ -382,128 +312,56 @@ static bool main_encode_parallel(
 {
     struct ThreadPool pool;
 
-    if (!thread_pool(&pool, mappedFiles))
+    if (!thread_pool(&pool, mappedFiles, jobs))
     {
         return false;
     }
 
-    pthread_t producer;
-    int ex = pthread_create(&producer, NULL, &main_produce, &pool);
+    // for (unsigned long job = 0; job < jobs; job++)
+    // {
+    //     ex = pthread_join(consumers[job], &result);
 
-    if (ex)
-    {
-        errno = ex;
+    //     if (ex)
+    //     {
+    //         errno = ex;
 
-        finalize_thread_pool(&pool);
+    //         free(consumers);
+    //         finalize_thread_pool(&pool);
 
-        return false;
-    }
+    //         return false;
+    //     }
 
-    pthread_t* consumers = malloc(jobs * sizeof * consumers);
+    //     if (!result)
+    //     {
+    //         free(consumers);
+    //         finalize_thread_pool(&pool);
 
-    if (!consumers)
-    {
-        finalize_thread_pool(&pool);
+    //         return false;
+    //     }
 
-        return false;
-    }
+    //     ex = *(int*)result;
 
-    void* result;
+    //     free(result);
 
-    for (unsigned long job = 0; job < jobs; job++)
-    {
-        ex = pthread_create(consumers + job, NULL, &main_consume, &pool);
+    //     if (ex)
+    //     {
+    //         errno = ex;
 
-        if (ex)
-        {
-            errno = ex;
+    //         free(consumers);
+    //         finalize_thread_pool(&pool);
 
-            free(consumers);
-            finalize_thread_pool(&pool);
+    //         return false;
+    //     }
+    // }
 
-            return false;
-        }
-    }
-
-    ex = pthread_join(producer, &result);
-
-    if (ex)
-    {
-        errno = ex;
-
-        free(consumers);
-        finalize_thread_pool(&pool);
-
-        return false;
-    }
-
-    if (!result)
-    {
-        free(consumers);
-        finalize_thread_pool(&pool);
-
-        return false;
-    }
-
-    ex = *(int*)result;
-
-    free(result);
-
-    if (ex)
-    {
-        errno = ex;
-
-        free(consumers);
-        finalize_thread_pool(&pool);
-
-        return false;
-    }
-
-    for (unsigned long job = 0; job < jobs; job++)
-    {
-        ex = pthread_join(consumers[job], &result);
-
-        if (ex)
-        {
-            errno = ex;
-
-            free(consumers);
-            finalize_thread_pool(&pool);
-
-            return false;
-        }
-
-        if (!result)
-        {
-            free(consumers);
-            finalize_thread_pool(&pool);
-
-            return false;
-        }
-
-        ex = *(int*)result;
-
-        free(result);
-
-        if (ex)
-        {
-            errno = ex;
-
-            free(consumers);
-            finalize_thread_pool(&pool);
-
-            return false;
-        }
-    }
-
-    free(consumers);
+    // free(consumers);
 
     fprintf(stderr, "there are %zu tasks, index is %zu\n", pool.tasksCount, pool.taskIndex);
-    
-    ex = task_merge(pool.tasks, pool.tasksCount);
-    
+
+    int ex = task_merge(pool.tasks, pool.tasksCount);
+
     finalize_thread_pool(&pool);
-    
+
     return ex;
 }
 
