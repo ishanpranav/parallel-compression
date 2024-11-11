@@ -111,12 +111,12 @@ static void* thread_pool_consume(void* arg)
         return NULL;
     }
 
-    for (;;)
+    while (pool->taskIndex < pool->tasksCount)
     {
-        fprintf(stderr, "consumer: wait for task, taskIndex = %zu, tasksCount = %zu\n", pool->taskIndex, pool->tasksCount);
-
-        while (pool->taskIndex >= pool->tasksCount)
+        while (!pool->tasksCount)
         {
+            fprintf(stderr, "consumer: wait for task, taskIndex = %zu, tasksCount = %zu\n", pool->taskIndex, pool->tasksCount);
+
             int ex = pthread_cond_wait(&pool->notEmptyCondition, &pool->mutex);
 
             if (ex)
@@ -127,8 +127,57 @@ static void* thread_pool_consume(void* arg)
             }
         }
 
+        pthread_mutex_lock(&pool->mutex);
         task_execute(pool->tasks + pool->taskIndex);
+
+        pool->taskIndex++;
+
+        pthread_mutex_unlock(&pool->mutex);
     }
+
+    return result;
+}
+
+static bool task_merge(struct Task tasks[], size_t count)
+{
+    bool merging = false;
+
+    for (size_t i = 0; i < count; i++)
+    {
+        fprintf(stderr, "for %zu: ", i);
+        fprintf(stderr, "in %zu, out %zu\n", tasks[i].inputSize, tasks[i].outputSize);
+
+        unsigned char* buffer = tasks[i].output;
+        size_t size = tasks[i].outputSize;
+
+        if (merging)
+        {
+            buffer += 2;
+            size -= 2;
+            merging = false;
+        }
+
+        if (i < count - 1 && size >= 2 && tasks[i + 1].outputSize >= 2)
+        {
+            unsigned char current = buffer[size - 2];
+            unsigned int count = buffer[size - 1];
+            unsigned char next = tasks[i + 1].output[0];
+            unsigned int nextCount = tasks[i + 1].output[1];
+
+            if (current == next && count + nextCount <= UCHAR_MAX)
+            {
+                buffer[size - 1] += nextCount;
+                merging = true;
+            }
+        }
+
+        if (fwrite(buffer, sizeof * buffer, size, stdout) != size)
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool thread_pool(
@@ -153,6 +202,10 @@ bool thread_pool(
 
         return false;
     }
+
+    instance->tasksCount = 0;
+    instance->taskIndex = 0;
+    instance->tasks = NULL;
 
     pthread_t* consumers = malloc(jobs * sizeof * consumers);
 
@@ -255,55 +308,69 @@ bool thread_pool(
         }
     }
 
-    fprintf(stderr, "j is %zu, tasksCount is %zu\n", j, tasksCount);
-
-    instance->tasks = tasks;
+    pthread_mutex_lock(&instance->mutex);
+    
     instance->tasksCount = tasksCount;
-    instance->taskIndex = 0;
+    instance->tasks = tasks;
 
-    return true;
-}
+    pthread_mutex_unlock(&instance->mutex);
+    pthread_cond_signal(&instance->notEmptyCondition);
+    fprintf(stderr, "signaled j is %zu, tasksCount is %zu\n", j, tasksCount);
 
-static bool task_merge(struct Task tasks[], size_t count)
-{
-    bool merging = false;
-
-    for (size_t i = 0; i < count; i++)
+    for (unsigned long job = 0; job < jobs; job++)
     {
-        fprintf(stderr, "for %zu: ", i);
-        fprintf(stderr, "in %zu, out %zu\n", tasks[i].inputSize, tasks[i].outputSize);
+        void* result;
+    
+        ex = pthread_join(consumers[job], &result);
 
-        unsigned char* buffer = tasks[i].output;
-        size_t size = tasks[i].outputSize;
-
-        if (merging)
+        if (ex)
         {
-            buffer += 2;
-            size -= 2;
-            merging = false;
+            errno = ex;
+
+            free(consumers);
+            free(instance->tasks);
+            pthread_mutex_destroy(&instance->mutex);
+            pthread_cond_destroy(&instance->notEmptyCondition);
+
+            return false;
         }
 
-        if (i < count - 1 && size >= 2 && tasks[i + 1].outputSize >= 2)
+        if (!result)
         {
-            unsigned char current = buffer[size - 2];
-            unsigned int count = buffer[size - 1];
-            unsigned char next = tasks[i + 1].output[0];
-            unsigned int nextCount = tasks[i + 1].output[1];
+            free(consumers);
+            free(instance->tasks);
+            pthread_mutex_destroy(&instance->mutex);
+            pthread_cond_destroy(&instance->notEmptyCondition);
 
-            if (current == next && count + nextCount <= UCHAR_MAX)
-            {
-                buffer[size - 1] += nextCount;
-                merging = true;
-            }
+            return false;
         }
 
-        if (fwrite(buffer, sizeof * buffer, size, stdout) != size)
+        ex = *(int*)result;
+
+        free(result);
+
+        if (ex)
         {
+            errno = ex;
+
+            free(consumers);
+            free(instance->tasks);
+            pthread_mutex_destroy(&instance->mutex);
+            pthread_cond_destroy(&instance->notEmptyCondition);
+
             return false;
         }
     }
 
-    return true;
+    free(consumers);
+    
+    ex = task_merge(instance->tasks, instance->tasksCount);
+
+    free(instance->tasks);
+    pthread_mutex_destroy(&instance->mutex);
+    pthread_cond_destroy(&instance->notEmptyCondition);
+
+    return ex;
 }
 
 static bool main_encode_parallel(
@@ -317,52 +384,7 @@ static bool main_encode_parallel(
         return false;
     }
 
-    // for (unsigned long job = 0; job < jobs; job++)
-    // {
-    //     ex = pthread_join(consumers[job], &result);
-
-    //     if (ex)
-    //     {
-    //         errno = ex;
-
-    //         free(consumers);
-    //         finalize_thread_pool(&pool);
-
-    //         return false;
-    //     }
-
-    //     if (!result)
-    //     {
-    //         free(consumers);
-    //         finalize_thread_pool(&pool);
-
-    //         return false;
-    //     }
-
-    //     ex = *(int*)result;
-
-    //     free(result);
-
-    //     if (ex)
-    //     {
-    //         errno = ex;
-
-    //         free(consumers);
-    //         finalize_thread_pool(&pool);
-
-    //         return false;
-    //     }
-    // }
-
-    // free(consumers);
-
-    fprintf(stderr, "there are %zu tasks, index is %zu\n", pool.tasksCount, pool.taskIndex);
-
-    int ex = task_merge(pool.tasks, pool.tasksCount);
-
-    finalize_thread_pool(&pool);
-
-    return ex;
+    return true;
 }
 
 int main(int count, char* args[])
