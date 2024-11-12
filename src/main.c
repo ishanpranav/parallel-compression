@@ -58,12 +58,20 @@ struct TaskQueue
     size_t count;
     size_t index;
     pthread_mutex_t mutex;
+    pthread_cond_t emptyCondition;
     struct Task* items;
 };
 
-typedef struct TaskQueue* TaskQueue;
+struct ThreadPool
+{
+    size_t resultsCount;
+    struct TaskQueue tasks;
+};
 
-bool task_queue(TaskQueue instance, MappedFileCollection mappedFiles)
+typedef struct TaskQueue* TaskQueue;
+typedef struct ThreadPool* ThreadPool;
+
+static void task_queue(TaskQueue instance, MappedFileCollection mappedFiles)
 {
     size_t count = 0;
 
@@ -78,38 +86,13 @@ bool task_queue(TaskQueue instance, MappedFileCollection mappedFiles)
     }
 
     struct Task* items = malloc(count * sizeof * items);
-    size_t id = 0;
-
-    for (int i = 0; i < mappedFiles->count; i++)
-    {
-        MappedFile mappedFile = mappedFiles->items[i];
-        off_t offsets = mappedFile.size / TASK_SIZE;
-        off_t remainder = mappedFile.size % TASK_SIZE;
-
-        for (off_t offset = 0; offset < offsets; offset++)
-        {
-            items[id].id = id;
-            items[id].input = mappedFile.buffer + offset * TASK_SIZE;
-            items[id].inputSize = TASK_SIZE;
-            id++;
-        }
-
-        if (remainder)
-        {
-            items[id].id = id;
-            items[id].input = mappedFile.buffer + offsets * TASK_SIZE;
-            items[id].inputSize = remainder;
-            id++;
-        }
-    }
 
     instance->items = items;
-    instance->count = count;
+    instance->count = 0;
     instance->index = 0;
 
     pthread_mutex_init(&instance->mutex, NULL);
-
-    return true;
+    pthread_cond_init(&instance->emptyCondition, NULL);
 }
 
 static void task_execute(Task instance)
@@ -153,6 +136,13 @@ static void task_execute(Task instance)
     instance->outputSize = outputSize;
 }
 
+bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
+{
+    task_queue(&instance->tasks, mappedFiles);
+
+    return true;
+}
+
 bool task_queue_dequeue(TaskQueue instance, Task* result)
 {
     pthread_mutex_lock(&instance->mutex);
@@ -174,15 +164,52 @@ bool task_queue_dequeue(TaskQueue instance, Task* result)
 
 static void* main_consume(void* arg)
 {
-    TaskQueue queue = (TaskQueue)arg;
+    ThreadPool pool = (ThreadPool)arg;
     Task current;
 
-    while (task_queue_dequeue(queue, &current))
+    while (task_queue_dequeue(&pool->tasks, &current))
     {
         task_execute(current);
     }
 
     return NULL;
+}
+
+static void main_produce(ThreadPool pool, MappedFileCollection mappedFiles)
+{
+        pthread_mutex_lock(&pool->tasks.mutex);
+
+        size_t id = 0;
+
+        for (int i = 0; i < mappedFiles->count; i++)
+        {
+            MappedFile mappedFile = mappedFiles->items[i];
+            off_t offsets = mappedFile.size / TASK_SIZE;
+            off_t remainder = mappedFile.size % TASK_SIZE;
+            struct Task* items = pool->tasks.items;
+
+
+            for (off_t offset = 0; offset < offsets; offset++)
+            {
+                items[id].id = id;
+                items[id].input = mappedFile.buffer + offset * TASK_SIZE;
+                items[id].inputSize = TASK_SIZE;
+                id++;
+            }
+
+            if (remainder)
+            {
+                items[id].id = id;
+                items[id].input = mappedFile.buffer + offsets * TASK_SIZE;
+                items[id].inputSize = remainder;
+                id++;
+            }
+        }
+
+        pool->tasks.count = id;
+
+        pthread_mutex_unlock(&pool->tasks.mutex);
+    
 }
 
 void finalize_task_queue(TaskQueue instance)
@@ -192,6 +219,12 @@ void finalize_task_queue(TaskQueue instance)
 
     free(instance->items);
     pthread_mutex_destroy(&instance->mutex);
+    pthread_cond_destroy(&instance->emptyCondition);
+}
+
+void finalize_thread_pool(ThreadPool instance)
+{
+    finalize_task_queue(&instance->tasks);
 }
 
 static bool main_merge(struct Task tasks[], size_t count)
@@ -240,9 +273,9 @@ static bool main_encode_parallel(
     MappedFileCollection mappedFiles,
     unsigned long jobs)
 {
-    struct TaskQueue queue;
+    struct ThreadPool pool;
 
-    if (!task_queue(&queue, mappedFiles))
+    if (!thread_pool(&pool, mappedFiles))
     {
         return false;
     }
@@ -251,9 +284,11 @@ static bool main_encode_parallel(
 
     for (unsigned long job = 0; job < jobs; job++)
     {
-        pthread_create(consumers + job, NULL, main_consume, &queue);
+        pthread_create(consumers + job, NULL, main_consume, &pool);
     }
 
+    main_produce(&pool, mappedFiles);
+    
     for (unsigned long job = 0; job < jobs; job++)
     {
         pthread_join(consumers[job], NULL);
@@ -262,8 +297,8 @@ static bool main_encode_parallel(
     free(consumers);
     // fprintf(stderr, "i have %zu items at index %zu\n", pool.tasks.count, pool.tasks.index);
 
-    main_merge(queue.items, queue.count);
-    finalize_task_queue(&queue);
+    main_merge(pool.tasks.items, pool.tasks.count);
+    finalize_thread_pool(&pool);
 
     return true;
 }
