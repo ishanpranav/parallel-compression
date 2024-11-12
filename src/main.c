@@ -24,19 +24,30 @@ static void main_print_usage(FILE* output, char* args[])
     fprintf(output, "Usage: %s [OPTION]... FILE...\n", args[0]);
 }
 
-static bool main_encode_sequential(MappedFileCollection mappedFiles)
+static bool main_encode_sequential(char* paths[], int count)
 {
+    struct MappedFileCollection mappedFiles;
+    int ex = mapped_file_collection(&mappedFiles, paths, count);
+
+    if (ex < count)
+    {
+        return false;
+    }
+
     Encoder encoder = { 0 };
 
-    for (int i = 0; i < mappedFiles->count; i++)
+    for (int i = 0; i < mappedFiles.count; i++)
     {
-        if (!encoder_next_encode(&encoder, mappedFiles->items[i]))
+        if (!encoder_next_encode(&encoder, mappedFiles.items[i]))
         {
+            finalize_mapped_file_collection(&mappedFiles);
+
             return false;
         }
     }
 
     encoder_end_encode(encoder);
+    finalize_mapped_file_collection(&mappedFiles);
 
     return true;
 }
@@ -73,23 +84,9 @@ struct ThreadPool
 typedef struct TaskQueue* TaskQueue;
 typedef struct ThreadPool* ThreadPool;
 
-static void task_queue(TaskQueue instance, MappedFileCollection mappedFiles)
+static void task_queue(TaskQueue instance)
 {
-    size_t count = 0;
-
-    for (int i = 0; i < mappedFiles->count; i++)
-    {
-        count += mappedFiles->items[i].size / TASK_SIZE;
-
-        if (mappedFiles->items[i].size % TASK_SIZE != 0)
-        {
-            count++;
-        }
-    }
-
-    struct Task* items = malloc(count * sizeof * items);
-
-    instance->items = items;
+    instance->items = NULL;
     instance->count = 0;
     instance->index = 0;
 
@@ -139,18 +136,18 @@ static void task_execute(Task instance)
     instance->outputSize = outputSize;
 }
 
-bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
+bool thread_pool(ThreadPool instance)
 {
-    task_queue(&instance->tasks, mappedFiles);
-
     instance->resultId = 0;
     instance->flushId = 0;
     instance->resultsCount = 0;
 
+    task_queue(&instance->tasks);
+
     return true;
 }
 
-bool task_queue_dequeue(ThreadPool instance, Task* result)
+bool thread_pool_try_dequeue(ThreadPool instance, Task* result)
 {
     pthread_mutex_lock(&instance->tasks.mutex);
 
@@ -182,7 +179,7 @@ static void* main_consume(void* arg)
     ThreadPool pool = (ThreadPool)arg;
     Task current;
 
-    while (task_queue_dequeue(pool, &current))
+    while (thread_pool_try_dequeue(pool, &current))
     {
         task_execute(current);
         pthread_mutex_lock(&pool->tasks.mutex);
@@ -264,21 +261,52 @@ static void main_end_flush(ThreadPool pool)
 
     Task previous = pool->tasks.items + pool->flushId - 1;
 
+    if (previous->outputSize < 2)
+    {
+        return;
+    }
+
     fwrite(previous->output + previous->outputSize - 2, sizeof * previous->output, 2, stdout);
 }
 
 static void main_produce(
     ThreadPool pool,
-    MappedFileCollection mappedFiles,
+    char* paths[],
+    int count,
     unsigned long jobs)
 {
     pthread_mutex_lock(&pool->tasks.mutex);
 
+    struct MappedFileCollection mappedFiles;
+    int ex = mapped_file_collection(&mappedFiles, paths, count);
+
+    if (ex < count)
+    {
+        return;
+    }
+    
+    size_t itemsCount = 0;
+
+    for (int i = 0; i < mappedFiles.count; i++)
+    {
+        itemsCount += mappedFiles.items[i].size / TASK_SIZE;
+
+        if (mappedFiles.items[i].size % TASK_SIZE != 0)
+        {
+            itemsCount++;
+        }
+    }
+
+    struct Task* items = malloc(itemsCount * sizeof * items);
+
+    pool->tasks.items = items;
+    pool->tasks.index = 0;
+
     size_t id = 0;
 
-    for (int i = 0; i < mappedFiles->count; i++)
+    for (int i = 0; i < mappedFiles.count; i++)
     {
-        MappedFile mappedFile = mappedFiles->items[i];
+        MappedFile mappedFile = mappedFiles.items[i];
         off_t offsets = mappedFile.size / TASK_SIZE;
         off_t remainder = mappedFile.size % TASK_SIZE;
         struct Task* items = pool->tasks.items;
@@ -300,7 +328,7 @@ static void main_produce(
         }
     }
 
-    pool->tasks.count = id;
+    pool->tasks.count = itemsCount;
 
     for (unsigned long job = 0; job < jobs; job++)
     {
@@ -325,6 +353,8 @@ static void main_produce(
 
         pthread_mutex_unlock(&pool->tasks.mutex);
     }
+
+    finalize_mapped_file_collection(&mappedFiles);
 }
 
 void finalize_task_queue(TaskQueue instance)
@@ -343,13 +373,11 @@ void finalize_thread_pool(ThreadPool instance)
     finalize_task_queue(&instance->tasks);
 }
 
-static bool main_encode_parallel(
-    MappedFileCollection mappedFiles,
-    unsigned long jobs)
+static bool main_encode_parallel(char* paths[], int count, unsigned long jobs)
 {
     struct ThreadPool pool;
 
-    if (!thread_pool(&pool, mappedFiles))
+    if (!thread_pool(&pool))
     {
         return false;
     }
@@ -361,7 +389,7 @@ static bool main_encode_parallel(
         pthread_create(consumers + job, NULL, main_consume, &pool);
     }
 
-    main_produce(&pool, mappedFiles, jobs);
+    main_produce(&pool, paths, count, jobs);
 
     for (unsigned long job = 0; job < jobs; job++)
     {
@@ -411,39 +439,18 @@ int main(int count, char* args[])
         return EXIT_FAILURE;
     }
 
-    struct MappedFileCollection mappedFiles;
-    int fileCount = count - optind;
-    int ex = mapped_file_collection(&mappedFiles, args + optind, fileCount);
-    char* app = args[0];
-
-    if (ex == -1)
-    {
-        perror(app);
-
-        return EXIT_FAILURE;
-    }
-
-    if (ex < fileCount)
-    {
-        char* path = args[optind + ex];
-
-        fprintf(stderr, "%s: %s: %s\n", app, path, strerror(errno));
-
-        return EXIT_FAILURE;
-    }
-
     bool result;
 
     if (jobs == 1)
     {
-        result = main_encode_sequential(&mappedFiles);
+        result = main_encode_sequential(args + optind, count - optind);
     }
     else
     {
-        result = main_encode_parallel(&mappedFiles, jobs);
+        result = main_encode_parallel(args + optind, count - optind, jobs);
     }
 
-    finalize_mapped_file_collection(&mappedFiles);
+    char* app = args[0];
 
     if (!result)
     {
