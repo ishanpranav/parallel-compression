@@ -98,7 +98,7 @@ static void task_queue(TaskQueue instance, MappedFileCollection mappedFiles)
     pthread_cond_init(&instance->consumer, NULL);
 }
 
-static void task_execute(Task instance)
+static off_t task_execute(Task instance)
 {
     off_t outputSize = 0;
     Encoder encoder = { 0 };
@@ -136,7 +136,7 @@ static void task_execute(Task instance)
         outputSize += sizeof encoder;
     }
 
-    instance->outputSize = outputSize;
+    return outputSize;
 }
 
 bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
@@ -184,9 +184,11 @@ static void* main_consume(void* arg)
 
     while (task_queue_dequeue(pool, &current))
     {
-        task_execute(current);
+        off_t outputSize = task_execute(current);
+
         pthread_mutex_lock(&pool->tasks.mutex);
 
+        current->outputSize = outputSize;
         pool->resultsCount++;
 
         if (pool->resultId == current->id)
@@ -218,6 +220,8 @@ static void main_next_flush(ThreadPool pool)
 
     for (; pool->flushId < pool->resultId; pool->flushId++)
     {
+        // fprintf(stderr, "merging %zu, %zu\n", pool->flushId - 1, pool->flushId);
+
         Task current = pool->tasks.items + pool->flushId;
         Task previous = current - 1;
         off_t size = current->outputSize;
@@ -232,29 +236,29 @@ static void main_next_flush(ThreadPool pool)
         unsigned char symbol = output[0];
         unsigned int count = output[1];
         unsigned int previousCount = previous->output[previousSize - 1];
-        Encoder encoder =
-        {
-            .previous = previous->output[previousSize - 2],
-            .count = previousCount
-        };
+        unsigned int previousSymbol = previous->output[previousSize - 2];
 
-        if (symbol == encoder.previous && count + previousCount <= UCHAR_MAX)
+        if (symbol == previousSymbol && count + previousCount <= UCHAR_MAX)
         {
-            output += 2;
-            size -= 2;
-            encoder.count += count;
+            output[1] += previousCount;
+        }
+        else
+        {
+            Encoder encoder = 
+            {
+                .previous = previousSymbol,
+                .count = previousCount
+            };
+
+            encoder_flush(encoder);
         }
 
-        encoder_flush(encoder);
-        
         if (size < 2)
         {
             continue;
         }
-
-        size -= 2;
-
-        fwrite(output, sizeof * output, size, stdout);
+        
+        fwrite(output, sizeof * output, size - 2, stdout);
     }
 }
 
@@ -267,16 +271,16 @@ static void main_end_flush(ThreadPool pool)
 
     Task previous = pool->tasks.items + pool->flushId - 1;
     
-    if (pool->flushId > 1 && previous->outputSize == 2)
-    {
-        Task previousPrevious = previous - 1;
+    // if (pool->flushId > 1 && previous->outputSize == 2)
+    // {
+    //     Task previousPrevious = previous - 1;
 
-        if (previousPrevious->output[previousPrevious->outputSize - 2] ==
-            previous->output[0])
-        {
-            return;
-        }
-    }
+    //     if (previousPrevious->output[previousPrevious->outputSize - 2] ==
+    //         previous->output[0])
+    //     {
+    //         return;
+    //     }
+    // }
 
     fwrite(previous->output + previous->outputSize - 2, sizeof * previous->output, 2, stdout);
 }
