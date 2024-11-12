@@ -21,6 +21,13 @@ typedef struct Encoder Encoder;
 /**
  * 
  * @param value
+ * @return 
+ */
+bool encoder_flush(Encoder value);
+
+/**
+ * 
+ * @param value
  * @param input
  * @return 
  */

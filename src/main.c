@@ -18,7 +18,6 @@
 #include "encoder.h"
 #include "mapped_file_collection.h"
 #define TASK_SIZE 4096
-// #include "thread_pool.h"
 
 static void main_print_usage(FILE* output, char* args[])
 {
@@ -151,28 +150,29 @@ bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
     return true;
 }
 
-bool task_queue_dequeue(TaskQueue instance, Task* result)
+bool task_queue_dequeue(ThreadPool instance, Task* result)
 {
-    pthread_mutex_lock(&instance->mutex);
+    pthread_mutex_lock(&instance->tasks.mutex);
 
-    while (!instance->count)
+    while (!instance->tasks.count)
     {
-        fprintf(stderr, "wait thread\n");
-        pthread_cond_wait(&instance->producer, &instance->mutex);
+        pthread_cond_wait(&instance->tasks.producer, &instance->tasks.mutex);
     }
 
-    if (instance->index >= instance->count)
+    if (instance->tasks.index >= instance->tasks.count)
     {
-        fprintf(stderr, "index %zu count %zu\n", instance->index, instance->count);
-        pthread_mutex_unlock(&instance->mutex);
+        instance->resultId = instance->resultsCount;
+
+        pthread_cond_signal(&instance->tasks.consumer);
+        pthread_mutex_unlock(&instance->tasks.mutex);
 
         return false;
     }
 
-    *result = instance->items + instance->index;
-    instance->index++;
+    *result = instance->tasks.items + instance->tasks.index;
+    instance->tasks.index++;
 
-    pthread_mutex_unlock(&instance->mutex);
+    pthread_mutex_unlock(&instance->tasks.mutex);
 
     return true;
 }
@@ -182,7 +182,7 @@ static void* main_consume(void* arg)
     ThreadPool pool = (ThreadPool)arg;
     Task current;
 
-    while (task_queue_dequeue(&pool->tasks, &current))
+    while (task_queue_dequeue(pool, &current))
     {
         task_execute(current);
         pthread_mutex_lock(&pool->tasks.mutex);
@@ -199,24 +199,13 @@ static void* main_consume(void* arg)
         pthread_mutex_unlock(&pool->tasks.mutex);
     }
 
-    pthread_mutex_lock(&pool->tasks.mutex);
-
-    pool->resultId = pool->resultsCount;
-    
-    pthread_cond_signal(&pool->tasks.consumer);
-    pthread_mutex_unlock(&pool->tasks.mutex);
-
-    fprintf(stderr, "exit thread\n");
     return NULL;
 }
 
 static void main_next_flush(ThreadPool pool)
 {
-    // fprintf(stderr, "resultId: %zu, resultscount %zu > %zu\n", pool->resultId, pool->resultsCount, pool->tasks.count);
-
     if (pool->flushId == 0 && pool->resultId > 0)
     {
-        fprintf(stderr, "flush id is 0\n");
         Task current = pool->tasks.items;
 
         if (current->outputSize >= 2)
@@ -229,8 +218,6 @@ static void main_next_flush(ThreadPool pool)
 
     for (; pool->flushId < pool->resultId; pool->flushId++)
     {
-        // fprintf(stderr, "flush id is %zu < result id %zu\n", pool->flushId, pool->resultId);
-
         Task current = pool->tasks.items + pool->flushId;
         Task previous = current - 1;
         off_t size = current->outputSize;
@@ -244,7 +231,7 @@ static void main_next_flush(ThreadPool pool)
         unsigned char* output = current->output;
         unsigned char symbol = output[0];
         unsigned int count = output[1];
-        unsigned int previousCount =  previous->output[previousSize - 1];
+        unsigned int previousCount = previous->output[previousSize - 1];
         Encoder encoder =
         {
             .previous = previous->output[previousSize - 2],
@@ -263,9 +250,7 @@ static void main_next_flush(ThreadPool pool)
             size -= 2;
         }
 
-        // fwrite();
-
-        fwrite(&encoder, sizeof encoder, 1, stdout);
+        encoder_flush(encoder);
         fwrite(output, sizeof * output, size, stdout);
     }
 }
@@ -384,11 +369,6 @@ static bool main_encode_parallel(
     }
 
     free(consumers);
-    fprintf(stderr, "freed consumers\n");
-
-    // fprintf(stderr, "i have %zu items at index %zu\n", pool.tasks.count, pool.tasks.index);
-
-    // main_merge(pool.tasks.items, pool.tasks.count);
     finalize_thread_pool(&pool);
 
     return true;

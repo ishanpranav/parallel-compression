@@ -10,9 +10,9 @@
 #include <stdio.h>
 #include "encoder.h"
 
-static bool encoder_flush(Encoder instance)
+bool encoder_flush(Encoder value)
 {
-    return fwrite(&instance, sizeof instance, 1, stdout);
+    return fwrite(&value, sizeof value, 1, stdout);
 }
 
 bool encoder_next_encode(Encoder* instance, MappedFile input)
