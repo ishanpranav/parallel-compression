@@ -212,7 +212,7 @@ static void* main_consume(void* arg)
 
 static void main_next_flush(ThreadPool pool)
 {
-    fprintf(stderr, "resultId: %zu, resultscount %zu > %zu\n", pool->resultId, pool->resultsCount, pool->tasks.count);
+    // fprintf(stderr, "resultId: %zu, resultscount %zu > %zu\n", pool->resultId, pool->resultsCount, pool->tasks.count);
 
     if (pool->flushId == 0 && pool->resultId > 0)
     {
@@ -229,7 +229,7 @@ static void main_next_flush(ThreadPool pool)
 
     for (; pool->flushId < pool->resultId; pool->flushId++)
     {
-        fprintf(stderr, "flush id is %zu < result id %zu\n", pool->flushId, pool->resultId);
+        // fprintf(stderr, "flush id is %zu < result id %zu\n", pool->flushId, pool->resultId);
 
         Task current = pool->tasks.items + pool->flushId;
         Task previous = current - 1;
