@@ -65,8 +65,8 @@ struct TaskQueue
 
 struct ThreadPool
 {
+    size_t resultId;
     size_t resultsCount;
-    size_t maxResult;
     struct TaskQueue tasks;
 };
 
@@ -92,7 +92,6 @@ static void task_queue(TaskQueue instance, MappedFileCollection mappedFiles)
     instance->items = items;
     instance->count = 0;
     instance->index = 0;
-    instance->maxResult = 0;
 
     pthread_mutex_init(&instance->mutex, NULL);
     pthread_cond_init(&instance->producer, NULL);
@@ -144,6 +143,7 @@ bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
 {
     task_queue(&instance->tasks, mappedFiles);
     
+    instance->resultId = 0;
     instance->resultsCount = 0;
 
     return true;
@@ -187,9 +187,17 @@ static void* main_consume(void* arg)
 
         pool->resultsCount++;
 
-        pthread_cond_signal(&pool->tasks.consumer);
+        if (pool->resultId == current->id)
+        {
+            pool->resultId++;
+
+            pthread_cond_signal(&pool->tasks.consumer);
+        }
+
         pthread_mutex_unlock(&pool->tasks.mutex);
     }
+
+    pthread_cond_signal(&pool->tasks.consumer);
 
     fprintf(stderr, "exit thread\n");
     return NULL;
@@ -240,13 +248,9 @@ static void main_produce(
     for (;;)
     {
         pthread_mutex_lock(&pool->tasks.mutex);
-
-        if (pool->resultsCount)
-        {
-            pthread_cond_wait(&pool->tasks.consumer, &pool->tasks.mutex);
-        }
+        pthread_cond_wait(&pool->tasks.consumer, &pool->tasks.mutex);
         
-        // fprintf(stderr, "resultscount %zu > %zu\n", pool->resultsCount, pool->tasks.count);
+        fprintf(stderr, "resultId: %zu, resultscount %zu > %zu\n", pool->resultId, pool->resultsCount, pool->tasks.count);
         
         if (pool->resultsCount >= pool->tasks.count)
         {
