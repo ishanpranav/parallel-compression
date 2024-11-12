@@ -210,60 +210,18 @@ static void* main_consume(void* arg)
     return NULL;
 }
 
-static bool main_merge(struct Task tasks[], size_t count)
-{
-    bool merging = false;
-
-    for (size_t i = 0; i < count; i++)
-    {
-        // fprintf(stderr, "for %zu: ", i);
-        // fprintf(stderr, "in %zu, out %zu\n", tasks[i].inputSize, tasks[i].outputSize);
-
-        unsigned char* buffer = tasks[i].output;
-        size_t size = tasks[i].outputSize;
-
-        if (merging)
-        {
-            buffer += 2;
-            size -= 2;
-            merging = false;
-        }
-
-        if (i < count - 1 && size >= 2 && tasks[i + 1].outputSize >= 2)
-        {
-            unsigned char current = buffer[size - 2];
-            unsigned int count = buffer[size - 1];
-            unsigned char next = tasks[i + 1].output[0];
-            unsigned int nextCount = tasks[i + 1].output[1];
-
-            if (current == next && count + nextCount <= UCHAR_MAX)
-            {
-                buffer[size - 1] += nextCount;
-                merging = true;
-            }
-        }
-
-        if (fwrite(buffer, sizeof * buffer, size, stdout) != size)
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static void main_flush(ThreadPool pool)
+static void main_next_flush(ThreadPool pool)
 {
     fprintf(stderr, "resultId: %zu, resultscount %zu > %zu\n", pool->resultId, pool->resultsCount, pool->tasks.count);
 
     if (pool->flushId == 0 && pool->resultId > 0)
     {
         fprintf(stderr, "flush id is 0\n");
-        Task task = pool->tasks.items;
+        Task current = pool->tasks.items;
 
-        if (task->outputSize >= 2)
+        if (current->outputSize >= 2)
         {
-            fwrite(task->output, sizeof * task->output, task->outputSize - 2, stdout);
+            fwrite(current->output, sizeof * current->output, current->outputSize - 2, stdout);
         }
 
         pool->flushId++;
@@ -278,10 +236,10 @@ static void main_flush(ThreadPool pool)
         off_t size = current->outputSize;
         off_t previousSize = previous->outputSize;
 
-        // if (size < 2 || previousSize < 2)
-        // {
-        //     continue;
-        // }
+        if (size < 2 || previousSize < 2)
+        {
+            continue;
+        }
 
         unsigned char* output = current->output;
         unsigned char symbol = output[0];
@@ -310,6 +268,18 @@ static void main_flush(ThreadPool pool)
         fwrite(&encoder, sizeof encoder, 1, stdout);
         fwrite(output, sizeof * output, size, stdout);
     }
+}
+
+static void main_end_flush(ThreadPool pool)
+{
+    if (!pool->flushId)
+    {
+        return;
+    }
+
+    Task previous = pool->tasks.items + pool->flushId - 1;
+
+    fwrite(previous->output + previous->outputSize - 2, sizeof * previous->output, 2, stdout);
 }
 
 static void main_produce(
@@ -358,10 +328,11 @@ static void main_produce(
     {
         pthread_mutex_lock(&pool->tasks.mutex);
         pthread_cond_wait(&pool->tasks.consumer, &pool->tasks.mutex);
-        main_flush(pool);
+        main_next_flush(pool);
 
         if (pool->resultsCount >= pool->tasks.count)
         {
+            main_end_flush(pool);
             pthread_mutex_unlock(&pool->tasks.mutex);
 
             break;
@@ -369,8 +340,6 @@ static void main_produce(
 
         pthread_mutex_unlock(&pool->tasks.mutex);
     }
-
-    main_flush(pool);
 }
 
 void finalize_task_queue(TaskQueue instance)
