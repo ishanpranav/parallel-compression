@@ -58,13 +58,15 @@ struct TaskQueue
     size_t count;
     size_t index;
     pthread_mutex_t mutex;
-    pthread_cond_t emptyCondition;
+    pthread_cond_t producer;
+    pthread_cond_t consumer;
     struct Task* items;
 };
 
 struct ThreadPool
 {
     size_t resultsCount;
+    size_t maxResult;
     struct TaskQueue tasks;
 };
 
@@ -90,9 +92,11 @@ static void task_queue(TaskQueue instance, MappedFileCollection mappedFiles)
     instance->items = items;
     instance->count = 0;
     instance->index = 0;
+    instance->maxResult = 0;
 
     pthread_mutex_init(&instance->mutex, NULL);
-    pthread_cond_init(&instance->emptyCondition, NULL);
+    pthread_cond_init(&instance->producer, NULL);
+    pthread_cond_init(&instance->consumer, NULL);
 }
 
 static void task_execute(Task instance)
@@ -139,6 +143,8 @@ static void task_execute(Task instance)
 bool thread_pool(ThreadPool instance, MappedFileCollection mappedFiles)
 {
     task_queue(&instance->tasks, mappedFiles);
+    
+    instance->resultsCount = 0;
 
     return true;
 }
@@ -147,8 +153,15 @@ bool task_queue_dequeue(TaskQueue instance, Task* result)
 {
     pthread_mutex_lock(&instance->mutex);
 
-    if (instance->index == instance->count)
+    while (!instance->count)
     {
+        fprintf(stderr, "wait thread\n");
+        pthread_cond_wait(&instance->producer, &instance->mutex);
+    }
+
+    if (instance->index >= instance->count)
+    {
+        fprintf(stderr, "index %zu count %zu\n", instance->index, instance->count);
         pthread_mutex_unlock(&instance->mutex);
 
         return false;
@@ -170,46 +183,80 @@ static void* main_consume(void* arg)
     while (task_queue_dequeue(&pool->tasks, &current))
     {
         task_execute(current);
+        pthread_mutex_lock(&pool->tasks.mutex);
+
+        pool->resultsCount++;
+
+        pthread_cond_signal(&pool->tasks.consumer);
+        pthread_mutex_unlock(&pool->tasks.mutex);
     }
 
+    fprintf(stderr, "exit thread\n");
     return NULL;
 }
 
-static void main_produce(ThreadPool pool, MappedFileCollection mappedFiles)
+static void main_produce(
+    ThreadPool pool,
+    MappedFileCollection mappedFiles,
+    unsigned long jobs)
 {
-        pthread_mutex_lock(&pool->tasks.mutex);
+    pthread_mutex_lock(&pool->tasks.mutex);
 
-        size_t id = 0;
+    size_t id = 0;
 
-        for (int i = 0; i < mappedFiles->count; i++)
+    for (int i = 0; i < mappedFiles->count; i++)
+    {
+        MappedFile mappedFile = mappedFiles->items[i];
+        off_t offsets = mappedFile.size / TASK_SIZE;
+        off_t remainder = mappedFile.size % TASK_SIZE;
+        struct Task* items = pool->tasks.items;
+
+        for (off_t offset = 0; offset < offsets; offset++)
         {
-            MappedFile mappedFile = mappedFiles->items[i];
-            off_t offsets = mappedFile.size / TASK_SIZE;
-            off_t remainder = mappedFile.size % TASK_SIZE;
-            struct Task* items = pool->tasks.items;
-
-
-            for (off_t offset = 0; offset < offsets; offset++)
-            {
-                items[id].id = id;
-                items[id].input = mappedFile.buffer + offset * TASK_SIZE;
-                items[id].inputSize = TASK_SIZE;
-                id++;
-            }
-
-            if (remainder)
-            {
-                items[id].id = id;
-                items[id].input = mappedFile.buffer + offsets * TASK_SIZE;
-                items[id].inputSize = remainder;
-                id++;
-            }
+            items[id].id = id;
+            items[id].input = mappedFile.buffer + offset * TASK_SIZE;
+            items[id].inputSize = TASK_SIZE;
+            id++;
         }
 
-        pool->tasks.count = id;
+        if (remainder)
+        {
+            items[id].id = id;
+            items[id].input = mappedFile.buffer + offsets * TASK_SIZE;
+            items[id].inputSize = remainder;
+            id++;
+        }
+    }
+
+    pool->tasks.count = id;
+
+    for (unsigned long job = 0; job < jobs; job++)
+    {
+        pthread_cond_signal(&pool->tasks.producer);
+    }
+
+    pthread_mutex_unlock(&pool->tasks.mutex);
+
+    for (;;)
+    {
+        pthread_mutex_lock(&pool->tasks.mutex);
+
+        if (pool->resultsCount)
+        {
+            pthread_cond_wait(&pool->tasks.consumer, &pool->tasks.mutex);
+        }
+        
+        // fprintf(stderr, "resultscount %zu > %zu\n", pool->resultsCount, pool->tasks.count);
+        
+        if (pool->resultsCount >= pool->tasks.count)
+        {
+            pthread_mutex_unlock(&pool->tasks.mutex);
+
+            break;
+        }
 
         pthread_mutex_unlock(&pool->tasks.mutex);
-    
+    }
 }
 
 void finalize_task_queue(TaskQueue instance)
@@ -219,7 +266,8 @@ void finalize_task_queue(TaskQueue instance)
 
     free(instance->items);
     pthread_mutex_destroy(&instance->mutex);
-    pthread_cond_destroy(&instance->emptyCondition);
+    pthread_cond_destroy(&instance->producer);
+    pthread_cond_destroy(&instance->consumer);
 }
 
 void finalize_thread_pool(ThreadPool instance)
@@ -287,14 +335,16 @@ static bool main_encode_parallel(
         pthread_create(consumers + job, NULL, main_consume, &pool);
     }
 
-    main_produce(&pool, mappedFiles);
-    
+    main_produce(&pool, mappedFiles, jobs);
+
     for (unsigned long job = 0; job < jobs; job++)
     {
         pthread_join(consumers[job], NULL);
     }
 
     free(consumers);
+    fprintf(stderr, "freed consumers\n");
+
     // fprintf(stderr, "i have %zu items at index %zu\n", pool.tasks.count, pool.tasks.index);
 
     main_merge(pool.tasks.items, pool.tasks.count);
