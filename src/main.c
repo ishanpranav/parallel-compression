@@ -245,13 +245,14 @@ static void main_next_flush(ThreadPool pool)
             encoder.count += count;
         }
 
+        encoder_flush(encoder);
+        
         if (size > 2)
         {
             size -= 2;
+                
+            fwrite(output, sizeof * output, size, stdout);
         }
-
-        encoder_flush(encoder);
-        fwrite(output, sizeof * output, size, stdout);
     }
 }
 
@@ -263,6 +264,17 @@ static void main_end_flush(ThreadPool pool)
     }
 
     Task previous = pool->tasks.items + pool->flushId - 1;
+    
+    if (pool->flushId > 1 && previous->outputSize == 2)
+    {
+        Task previousPrevious = previous - 1;
+
+        if (previousPrevious->output[previousPrevious->outputSize - 2] ==
+            previous->output[0])
+        {
+            return;
+        }
+    }
 
     fwrite(previous->output + previous->outputSize - 2, sizeof * previous->output, 2, stdout);
 }
