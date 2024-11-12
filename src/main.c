@@ -220,8 +220,6 @@ static void main_next_flush(ThreadPool pool)
 
     for (; pool->flushId < pool->resultId; pool->flushId++)
     {
-        // fprintf(stderr, "merging %zu, %zu\n", pool->flushId - 1, pool->flushId);
-
         Task current = pool->tasks.items + pool->flushId;
         Task previous = current - 1;
         off_t size = current->outputSize;
