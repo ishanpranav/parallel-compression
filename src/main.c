@@ -247,12 +247,14 @@ static void main_next_flush(ThreadPool pool)
 
         encoder_flush(encoder);
         
-        if (size > 2)
+        if (size < 2)
         {
-            size -= 2;
-                
-            fwrite(output, sizeof * output, size, stdout);
+            continue;
         }
+
+        size -= 2;
+
+        fwrite(output, sizeof * output, size, stdout);
     }
 }
 
