@@ -5,6 +5,7 @@
 // References:
 //  - https://www.man7.org/linux/man-pages/man3/fwrite.3p.html
 
+#include <assert.h>
 #include <limits.h>
 #include <string.h>
 #include <stdio.h>
@@ -12,7 +13,11 @@
 
 bool encoder_flush(Encoder value)
 {
-    return fwrite(&value, sizeof value, 1, stdout);
+    bool result = fwrite(&value, sizeof value, 1, stdout) == 1;
+
+    assert(result);
+
+    return result;
 }
 
 bool encoder_next_encode(Encoder* instance, MappedFile input)
@@ -103,5 +108,10 @@ off_t encoder_encode(
 
 bool encoder_end_encode(Encoder instance)
 {
-    return !instance.count || encoder_flush(instance);
+    if (!instance.count)
+    {
+        return true;
+    }
+
+    return encoder_flush(instance);
 }
